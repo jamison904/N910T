@@ -487,7 +487,7 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.default_value = DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
 		.step = 1,
 	},
-   {
+	{
 		.id = V4L2_CID_MPEG_VIDC_VIDEO_BUFFER_SIZE_LIMIT,
 		.name = "Buffer size limit",
 		.type = V4L2_CTRL_TYPE_INTEGER,
@@ -497,7 +497,7 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.step = 1,
 		.menu_skip_mask = 0,
 		.qmenu = NULL,
-   },	
+	},
 };
 
 #define NUM_CTRLS ARRAY_SIZE(msm_vdec_ctrls)
@@ -515,33 +515,33 @@ static u32 get_frame_size_compressed(int plane,
 }
 
 static u32 get_frame_size(struct msm_vidc_inst *inst,
-              const struct msm_vidc_format *fmt,
-             int fmt_type, int plane)
+					const struct msm_vidc_format *fmt,
+					int fmt_type, int plane)
 {
-   u32 frame_size = 0;
- if (fmt_type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
-    frame_size = fmt->get_frame_size(plane,
-              inst->capability.mbs_per_frame.max,
-               MB_SIZE_IN_PIXEL);
-     if (inst->capability.buffer_size_limit &&
-         (inst->capability.buffer_size_limit < frame_size)) {
-       frame_size = inst->capability.buffer_size_limit;
-        dprintk(VIDC_DBG, "input buffer size limited to %d\n",
-           frame_size);
-     } else {
-         dprintk(VIDC_DBG, "set input buffer size to %d\n",
-            frame_size);
-     }
- } else if (fmt_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-     frame_size = fmt->get_frame_size(plane,
-              inst->capability.height.max,
-             inst->capability.width.max);
-    dprintk(VIDC_DBG, "set output buffer size to %d\n",
-        frame_size);
-  } else {
-      dprintk(VIDC_WARN, "Wrong format type\n");
-  }
- return frame_size;
+	u32 frame_size = 0;
+	if (fmt_type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		frame_size = fmt->get_frame_size(plane,
+					inst->capability.mbs_per_frame.max,
+					MB_SIZE_IN_PIXEL);
+		if (inst->capability.buffer_size_limit &&
+			(inst->capability.buffer_size_limit < frame_size)) {
+			frame_size = inst->capability.buffer_size_limit;
+			dprintk(VIDC_DBG, "input buffer size limited to %d\n",
+				frame_size);
+		} else {
+			dprintk(VIDC_DBG, "set input buffer size to %d\n",
+				frame_size);
+		}
+	} else if (fmt_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+		frame_size = fmt->get_frame_size(plane,
+					inst->capability.height.max,
+					inst->capability.width.max);
+		dprintk(VIDC_DBG, "set output buffer size to %d\n",
+			frame_size);
+	} else {
+		dprintk(VIDC_WARN, "Wrong format type\n");
+	}
+	return frame_size;
 }
 
 static int is_ctrl_valid_for_codec(struct msm_vidc_inst *inst,
@@ -743,6 +743,14 @@ int msm_vdec_prepare_buf(struct msm_vidc_inst *inst,
 	}
 	hdev = inst->core->device;
 
+	if (inst->state == MSM_VIDC_CORE_INVALID ||
+			inst->core->state == VIDC_CORE_INVALID) {
+		dprintk(VIDC_ERR,
+			"Core %p in bad state, ignoring prepare buf\n",
+				inst->core);
+		goto exit;
+	}
+	
 	switch (b->type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
 		break;
@@ -792,6 +800,7 @@ int msm_vdec_prepare_buf(struct msm_vidc_inst *inst,
 		dprintk(VIDC_ERR, "Buffer type not recognized: %d\n", b->type);
 		break;
 	}
+exit:	
 	return rc;
 }
 
@@ -991,7 +1000,7 @@ int msm_vdec_g_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 				if (plane_sizes[i] == 0) {
 					f->fmt.pix_mp.plane_fmt[i].sizeimage =
 						get_frame_size(inst, fmt,
-								f->type, i);						
+								f->type, i);
 					plane_sizes[i] =
 						f->fmt.pix_mp.plane_fmt[i].
 							sizeimage;
@@ -1100,9 +1109,7 @@ int msm_vdec_s_parm(struct msm_vidc_inst *inst, struct v4l2_streamparm *a)
 				inst, inst->prop.fps, fps);
 		inst->prop.fps = fps;
 		msm_comm_init_dcvs_load(inst);
-		mutex_lock(&inst->core->sync_lock);
 		msm_comm_scale_clocks_and_bus(inst);
-		mutex_unlock(&inst->core->sync_lock);
 	}
 exit:
 	return rc;
@@ -1340,7 +1347,7 @@ static int msm_vdec_queue_setup(struct vb2_queue *q,
 			*num_buffers = MIN_NUM_OUTPUT_BUFFERS;
 		for (i = 0; i < *num_planes; i++) {
 			sizes[i] = get_frame_size(inst,
-					inst->fmts[OUTPUT_PORT], q->type, i);	
+					inst->fmts[OUTPUT_PORT], q->type, i);
 		}
 		property_id = HAL_PARAM_BUFFER_COUNT_ACTUAL;
 		new_buf_count.buffer_type = HAL_BUFFER_INPUT;
@@ -1522,9 +1529,8 @@ static inline int start_streaming(struct msm_vidc_inst *inst)
 			goto fail_start;
 		}
 	}
-	mutex_lock(&inst->core->sync_lock);
+
 	msm_comm_scale_clocks_and_bus(inst);
-	mutex_unlock(&inst->core->sync_lock);
 
 	rc = msm_comm_try_state(inst, MSM_VIDC_START_DONE);
 	if (rc) {
@@ -1632,9 +1638,7 @@ static int msm_vdec_stop_streaming(struct vb2_queue *q)
 		break;
 	}
 
-	mutex_lock(&inst->core->sync_lock);
 	msm_comm_scale_clocks_and_bus(inst);
-	mutex_unlock(&inst->core->sync_lock);
 
 	if (rc)
 		dprintk(VIDC_ERR,

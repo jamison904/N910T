@@ -23,6 +23,7 @@
 
 #define LIMIT_RESET_CNT		20
 #define LIMIT_TIMEOUT_CNT	3
+#define LIMIT_LIST_EMPTY_CNT	10
 
 #define DUMP_FILE_PATH "/data/log/MCU_DUMP"
 
@@ -333,6 +334,7 @@ static void recovery_mcu(struct ssp_data *data)
 		ssp_enable(data, false);
 	}
 
+	data->uListEmptyCnt = 0;
 	data->uTimeOutCnt = 0;
 }
 
@@ -341,10 +343,10 @@ static void debug_work_func(struct work_struct *work)
 	unsigned int uSensorCnt;
 	struct ssp_data *data = container_of(work, struct ssp_data, work_debug);
 
-	ssp_dbg("[SSP]: %s(%u) - Sensor state: 0x%x, RC: %u, CC: %u DC: %u"
-		" TC: %u\n", __func__, data->uIrqCnt, data->uSensorState,
+	ssp_dbg("[SSP]: %s(%u) - Sensor state: 0x%x, RC: %u, CC: %u, DC: %u,"
+		" LC: %u, TC: %u\n", __func__, data->uIrqCnt, data->uSensorState,
 		data->uResetCnt, data->uComFailCnt, data->uDumpCnt,
-		data->uTimeOutCnt);
+		data->uListEmptyCnt, data->uTimeOutCnt);
 
 	switch (data->fw_dl_state) {
 	case FW_DL_STATE_FAIL:
@@ -363,6 +365,7 @@ static void debug_work_func(struct work_struct *work)
 	if (((atomic_read(&data->aSensorEnable) & (1 << ACCELEROMETER_SENSOR))
 		&& (data->batchLatencyBuf[ACCELEROMETER_SENSOR] == 0)
 		&& (data->uIrqCnt == 0) && (data->uTimeOutCnt > 0))
+		|| (data->uListEmptyCnt > LIMIT_LIST_EMPTY_CNT)
 		|| (data->uTimeOutCnt > LIMIT_TIMEOUT_CNT))
 		recovery_mcu(data);
 

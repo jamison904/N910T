@@ -31,14 +31,16 @@
 #define MAX77843_CHG_I                  (1 << 4)
 #define MAX77843_WCIN_I			(1 << 5)
 #define MAX77843_CHGIN_I                (1 << 6)
+#define MAX77843_AICL_I                 (1 << 7)
 
 /* MAX77843_CHG_REG_CHG_INT_MASK */
 #define MAX77843_BYP_IM                 (1 << 0)
-#define MAX77843_THM_IM                 (1 << 2)
+#define MAX77843_BATP_IM                 (1 << 2)
 #define MAX77843_BAT_IM                 (1 << 3)
 #define MAX77843_CHG_IM                 (1 << 4)
 #define MAX77843_WCIN_IM		(1 << 5)
 #define MAX77843_CHGIN_IM               (1 << 6)
+#define MAX77843_AICL_IM                (1 << 7)
 
 /* MAX77843_CHG_REG_CHG_INT_OK */
 #define MAX77843_BYP_OK                 0x01
@@ -143,6 +145,15 @@
 #define SOFT_CHG_CURR_STEP	200	/* mA */
 #define SOFT_CHG_STEP_DUR	30	/* ms */
 
+#define REDUCE_CURRENT_STEP			100
+#define MINIMUM_INPUT_CURRENT			300
+#define SIOP_INPUT_LIMIT_CURRENT                1200
+#define SIOP_CHARGING_LIMIT_CURRENT             1000
+#define SIOP_WIRELESS_INPUT_LIMIT_CURRENT		660
+#define SIOP_WIRELESS_CHARGING_LIMIT_CURRENT	780
+#define SLOW_CHARGING_CURRENT_STANDARD          0x0C
+#define INPUT_CURRENT_1000mA                    0x1E
+
 struct max77843_charger_data {
 	struct device           *dev;
 	struct i2c_client       *i2c;
@@ -169,6 +180,7 @@ struct max77843_charger_data {
 	/* wakelock */
 	struct wake_lock recovery_wake_lock;
 	struct wake_lock wpc_wake_lock;
+	struct wake_lock afc_wake_lock;
 	struct wake_lock chgin_wake_lock;
 
 	unsigned int	is_charging;
@@ -221,7 +233,7 @@ struct max77843_charger_data {
 	int wpc_input_curr_limit_step;
 	int charging_curr_step;
 
-	sec_battery_platform_data_t	*pdata;
+	sec_charger_platform_data_t	*pdata;
 };
 
 #endif /* __MAX77843_CHARGER_H */

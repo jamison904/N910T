@@ -73,7 +73,6 @@
 #define USE_HOVER_REZERO
 #define GLOVE_MODE
 #define READ_LCD_ID
-#define REPORT_ANGLE
 #define USE_PALM_REJECTION_KERNEL
 #define USE_EDGE_EXCLUSION
 #define USE_EDGE_SWIPE_WIDTH_MAJOR
@@ -100,7 +99,6 @@
 #define USE_HOVER_REZERO
 #define GLOVE_MODE
 #define READ_LCD_ID
-#define REPORT_ANGLE
 #define USE_PALM_REJECTION_KERNEL
 #define USE_EDGE_EXCLUSION
 #define USE_EDGE_SWIPE_WIDTH_MAJOR
@@ -112,7 +110,6 @@
 #undef PROXIMITY			/* Use F51 - edge_swipe, hover, side_touch, stylus, hand_grip */
 #undef EDGE_SWIPE			/* Screen Caputure, and Palm pause */
 #undef EDGE_SWIPE_SCALE			/* Recalculate edge_swipe data */
-#undef REPORT_ANGLE			/* Report angle data when surface touch */
 #undef USE_PALM_REJECTION_KERNEL	/* Fix Firmware bug.(Finger_status, PALM flag) */
 #undef SIDE_TOUCH			/* Side Touch */
 #undef USE_HOVER_REZERO			/* Use hover rezero */

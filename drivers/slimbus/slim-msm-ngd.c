@@ -141,6 +141,7 @@ static irqreturn_t ngd_slim_interrupt(int irq, void *d)
 
 		SLIM_WARN(dev, "NGD interrupt error:0x%x, err:%d\n", stat,
 								dev->err);
+
 		/* Guarantee that error interrupts are cleared */
 		mb();
 		if (dev->wr_comp)
@@ -342,13 +343,14 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 		 * care of putting the device in active state.
 		 */
 		ret = ngd_slim_runtime_resume(dev->dev);
-				
+
 		if (ret) {
 			SLIM_ERR(dev, "slim resume failed ret:%d, state:%d",
-							ret, dev->state);
+					ret, dev->state);
 			return -EREMOTEIO;
 		}
 	}
+
 	else if (txn->mc & SLIM_MSG_CLK_PAUSE_SEQ_FLG)
 		return -EPROTONOSUPPORT;
 
@@ -411,9 +413,9 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 		 * Setting runtime status to suspended clears the error
 		 * It also makes HW status cosistent with what SW has it here
 		 */
-		if (ret < 0) {
+		if (pm_runtime_enabled(dev->dev) && ret < 0) {
 			SLIM_ERR(dev, "slim ctrl vote failed ret:%d, state:%d",
-							ret, dev->state);
+					ret, dev->state);
 			pm_runtime_set_suspended(dev->dev);
 			msm_slim_put_ctrl(dev);
 			return -EREMOTEIO;
@@ -1581,7 +1583,7 @@ static int ngd_slim_runtime_resume(struct device *device)
 	if (dev->state >= MSM_CTRL_ASLEEP)
 		ret = ngd_slim_power_up(dev, false);
 	if (ret) {
-		/* Did SSR cause this clock pause failure */
+		/* Did SSR cause this power up failure */
 		if (dev->state != MSM_CTRL_DOWN)
 			dev->state = MSM_CTRL_ASLEEP;
 		else
@@ -1602,7 +1604,7 @@ static int ngd_slim_runtime_suspend(struct device *device)
 	ret = ngd_slim_power_down(dev);
 	if (ret) {
 		if (ret != -EBUSY)
-			SLIM_INFO(dev, "clk pause not entered:%d\n", ret);
+			SLIM_INFO(dev, "slim resource not idle:%d\n", ret);
 		dev->state = MSM_CTRL_AWAKE;
 	} else {
 		dev->state = MSM_CTRL_ASLEEP;

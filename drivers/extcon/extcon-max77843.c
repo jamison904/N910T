@@ -81,7 +81,7 @@ enum {
 };
 
 #define CHGTYP (CHGTYP_USB | CHGTYP_DOWNSTREAM_PORT |\
-CHGTYP_DEDICATED_CHGR | CHGTYP_500MA | CHGTYP_1A)
+CHGTYP_DEDICATED_CHGR | CHGTYP_500MA | CHGTYP_1A |CHGTYP_RFU)
 
 enum {
 	ADC_GND			= 0x00,
@@ -1546,6 +1546,12 @@ static void _detected(struct max77843_muic_info *info, u32 new_state)
 	dev_info(info->dev, "state: cur=0x%x, new=0x%x, changed=0x%x\n",
 			current_state, new_state, changed_state);
 
+	if((current_state != 0x0) && (new_state == 0x1)) {
+		dev_info(info->dev, "Force detach.  cur=0x%x, new=0x%x, changed=0x%x\n",
+				current_state, new_state, changed_state);
+		new_state = 0;
+	}
+
 	if(new_state == 0)
 		max77843_muic_restore_wa_setting(info);
 
@@ -1732,6 +1738,10 @@ static int max77843_muic_handle_attach(struct max77843_muic_info *info,
 		gInfo->cable_name = EXTCON_JIG_UARTON;
 #endif
 		break;
+#if defined(CONFIG_SEC_FACTORY)
+	case ADC_CEA936ATYPE2_CHG:
+		dev_info(info->dev, "%s:ADC_CEA936CHGTYP2 in FactoryMode(%x)\n", __func__, adc);
+#endif
 	case ADC_JIG_USB_OFF:
 		if (vbvolt) {
 			new_state = BIT(EXTCON_JIG_USBOFF);
@@ -1779,6 +1789,7 @@ static int max77843_muic_handle_attach(struct max77843_muic_info *info,
 		case CHGTYP_DEDICATED_CHGR:
 		case CHGTYP_500MA:
 		case CHGTYP_1A:
+		case CHGTYP_RFU:
 			dev_info(info->dev, "%s:TA\n", __func__);
 			new_state = BIT(EXTCON_TA);
 			gInfo->cable_name = EXTCON_TA;
@@ -1787,7 +1798,9 @@ static int max77843_muic_handle_attach(struct max77843_muic_info *info,
 			break;
 		}
 		break;
+#if !defined(CONFIG_SEC_FACTORY)
 	case ADC_CEA936ATYPE2_CHG:
+#endif
 	case ADC_OPEN:
 		if (vbvolt) {
 			switch (chgtyp) {
@@ -1809,6 +1822,7 @@ static int max77843_muic_handle_attach(struct max77843_muic_info *info,
 			case CHGTYP_DEDICATED_CHGR:
 			case CHGTYP_500MA:
 			case CHGTYP_1A:
+			case CHGTYP_RFU:
 				dev_info(info->dev, "%s:TA\n", __func__);
 				if (!info->afc_disable) {
 #if defined(CONFIG_CHARGER_SMB1357)
@@ -2267,6 +2281,11 @@ static int max77843_muic_probe(struct platform_device *pdev)
 	dev_info(info->dev, "adc:%d chgtype:%d\n",
 		 info->irq_adc, info->irq_chgtype);
 
+	if(switch_sel & 0x100)
+		info->afc_disable = true;
+	else
+		info->afc_disable = false;
+	dev_info(info->dev, "%s:AFC DISABLE : %d\n", __func__, info->afc_disable);
 #if defined(CONFIG_SWITCH_DUAL_MODEM) || defined(CONFIG_MUIC_RUSTPROOF_UART)
 	switch_sel &= 0xf;
 	if ((switch_sel & MAX77843_SWITCH_SEL_1st_BIT_USB) == 0x1)
@@ -2281,11 +2300,6 @@ static int max77843_muic_probe(struct platform_device *pdev)
 
 	pr_err("%s: switch_sel: %x\n", __func__, switch_sel);
 #endif
-	if(switch_sel & 0x100)
-		info->afc_disable = true;
-	else
-		info->afc_disable = false;
-	dev_info(info->dev, "%s:AFC DISABLE : %d\n", __func__, info->afc_disable);
 
 	/* create sysfs group */
 	ret = sysfs_create_group(&switch_dev->kobj, &max77843_muic_group);

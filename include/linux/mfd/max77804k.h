@@ -76,7 +76,7 @@ struct max77804k_charger_reg_data {
 struct max77804k_charger_platform_data {
 	struct max77804k_charger_reg_data *init_data;
 	int num_init_data;
-	sec_battery_platform_data_t *sec_battery;
+	sec_charger_platform_data_t *sec_battery;
 #if defined(CONFIG_WIRELESS_CHARGING) || defined(CONFIG_CHARGER_MAX77804K)
 	int wpc_irq_gpio;
 	int vbus_irq_gpio;
@@ -130,7 +130,7 @@ struct max77804k_platform_data {
 	struct max77804k_led_platform_data *led_data;
 #endif
 #if defined(CONFIG_CHARGER_MAX77804K)
-	sec_battery_platform_data_t *charger_data;
+	sec_charger_platform_data_t *charger_data;
 #endif
 };
 

@@ -98,10 +98,21 @@ int32_t g_nforce_32;
 #define MOTOR_STRENGTH			98/*MOTOR_STRENGTH 98 %*/
 #define MOTOR_MIN_STRENGTH			54/*IMMERSION VALUE*/
 
+
+#if defined(CONFIG_SEC_TBLTE_PROJECT)
+#define GP_CLK_M_DEFAULT			3
+#define GP_CLK_N_DEFAULT            138
+#define GP_CLK_D_DEFAULT			69 /* 50% duty cycle */
+#define IMM_PWM_MULTIPLIER			138
+#define VIB_LDO_VOLTAGE			3600000
+#else
 #define GP_CLK_M_DEFAULT			3
 #define GP_CLK_N_DEFAULT                        121
 #define GP_CLK_D_DEFAULT			61  /* 50% duty cycle */
 #define IMM_PWM_MULTIPLIER			121
+#define VIB_LDO_VOLTAGE			3000000
+#endif
+
 
 
 

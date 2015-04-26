@@ -24,6 +24,7 @@ struct panel_id {
 };
 
 #define DEFAULT_FRAME_RATE	60
+#define DEFAULT_ROTATOR_FRAME_RATE 120
 #define MDSS_DSI_RST_SEQ_LEN	10
 
 /* panel type list */
@@ -75,6 +76,9 @@ enum {
 	MDSS_PANEL_BLANK_BLANK = 0,
 	MDSS_PANEL_BLANK_UNBLANK,
 	MDSS_PANEL_BLANK_LOW_POWER,
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	MDSS_PANEL_BLANK_READY_TO_UNBLANK,
+#endif
 };
 
 enum {
@@ -174,7 +178,11 @@ enum mdss_intf_events {
 	MDSS_EVENT_TE_SET,
 	MDSS_EVENT_TE_RESTORE,
 #endif
-	MDSS_EVENT_READ_LDI_STATUS
+	MDSS_EVENT_READ_LDI_STATUS,
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	MDSS_SAMSUNG_EVENT_FRAME_UPDATE,
+	MDSS_SAMSUNG_EVENT_FB_EVENT_CALLBACK,
+#endif
 };
 
 struct lcd_panel_info {
@@ -310,6 +318,17 @@ struct mdss_mdp_pp_tear_check {
 	u32 refx100;
 };
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+struct esd_recovery {
+	spinlock_t irq_lock;
+	bool esd_recovery_init;
+	bool is_enabled_esd_recovery;
+	int esd_gpio;
+	unsigned long irqflags;
+	void (*esd_irq_enable) (bool enable, bool nosync, void *data);
+};
+#endif
+
 struct mdss_panel_info {
 	u32 xres;
 	u32 yres;
@@ -350,6 +369,7 @@ struct mdss_panel_info {
 	int pwm_period;
 	bool dynamic_fps;
 	bool ulps_feature_enabled;
+	bool split_display;
 	char dfps_update;
 	int new_fps;
 	u32 mode_gpio_state;
@@ -362,7 +382,7 @@ struct mdss_panel_info {
 
 	u32 cont_splash_enabled;
 	u32 partial_update_enabled;
-	u32 partial_update_dcs_cmd_by_left;
+	u32 dcs_cmd_by_left;
 	u32 partial_update_roi_merge;
 	struct ion_handle *splash_ihdl;
 	int panel_power_state;
@@ -379,30 +399,15 @@ struct mdss_panel_info {
 	struct mipi_panel_info mipi;
 	struct lvds_panel_info lvds;
 	struct edp_panel_info edp;
-};
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	struct esd_recovery esd_recovery;
+	int panel_state;
+#endif
 
-struct mdss_panel_alpm_data {
-	u8 (*alpm_event) (u8 flag); /* To be delete */
-	u8 (*alpm_status) (u8 flag);
-	void (*alpm_register) (struct mdss_panel_alpm_data *alpm_data);
 };
-
-/* ALPM status flags */
-enum {
-	/* Status flags */
-	MODE_OFF = 0,		/* Mode status of ALPM off */
-	ALPM_MODE_ON,				/* Mode status of ALPM ON */
-	NORMAL_MODE_ON,			/* Normal Mode Status */
-	CHECK_CURRENT_STATUS,	/* Check Current Mode */
-	CHECK_PREVIOUS_STATUS,	/* Check Previous Mode */
-	STORE_CURRENT_STATUS,	/* Store current status to previous status */
-	CLEAR_MODE_STATUS,		/* Clear status flag as MODE_OFF */
-};
-
 
 struct mdss_panel_data {
 	struct mdss_panel_info panel_info;
-	struct mdss_panel_alpm_data alpm_data;
 	void (*set_backlight) (struct mdss_panel_data *pdata, u32 bl_level);
 	unsigned char *mmss_cc_base;
 
@@ -421,6 +426,10 @@ struct mdss_panel_data {
 	int (*event_handler) (struct mdss_panel_data *pdata, int e, void *arg);
 
 	struct mdss_panel_data *next;
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	void *panel_private;
+#endif
 };
 
 /**
@@ -600,39 +609,4 @@ int mdss_panel_get_boot_cfg(void);
  * returns true if mdss is ready, else returns false.
  */
 bool mdss_is_ready(void);
-#ifdef CONFIG_FB_MSM_SAMSUNG_AMOLED_LOW_POWER_MODE
-/*
- * This will initialize mdss_panel_alpm_data structure
- */
-extern void mdss_dsi_panel_alpm_register(struct mdss_panel_alpm_data *alpm_data);
-
-/*
- * This will use to enable/disable or check the status of ALPM
- * * Description for STATUS_OR_EVENT_FLAG *
- *	1) ALPM_MODE_ON
- *	2) NORMAL_MODE_ON
- *		-> Set by user using sysfs(/sys/class/lcd/panel/alpm)
- *			The value will save to current_status
- *	3) CHECK_CURRENT_STATUS
- *		-> Check current status
- *			that will return current status like ALPM_MODE_ON, NORMAL_MODE_ON or MODE_OFF
- *	4) CHECK_PREVIOUS_STATUS
- *		-> Check previous status that will return previous status like
- *			 ALPM_MODE_ON, NORMAL_MODE_ON or MODE_OFF
- *	5) STORE_CURRENT_STATUS
- *		-> Store current status to previous status because that will use
- *			for next turn on sequence
- *	6) CLEAR_MODE_STATUS
- *		-> Clear current and previous status as MODE_OFF status that can use with
- *	* Usage *
- *		Call function "mdss_dsi_panel_alpm_status_func(STATUS_FLAG)"
- */
-
-extern u8 mdss_dsi_panel_alpm_status_func(u8 flag);
-#else
-static inline u8 mdss_dsi_panel_alpm_status_func(u8 flag)
-{
-	return 0;
-}
-#endif /* CONFIG_FB_MSM_SAMSUNG_AMOLED_LOW_POWER_MODE  */
 #endif /* MDSS_PANEL_H */

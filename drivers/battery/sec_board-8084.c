@@ -14,9 +14,11 @@
 #if defined(CONFIG_FUELGAUGE_MAX17048)
 #include <linux/battery/fuelgauge/max17048_fuelgauge.h>
 #endif
-
-#if defined(CONFIG_FUELGAUGE_MAX77823) || defined(CONFIG_FUELGAUGE_MAX77843)
+#if defined(CONFIG_FUELGAUGE_MAX77823)
 #include <linux/battery/fuelgauge/max77823_fuelgauge.h>
+#endif
+#if defined(CONFIG_FUELGAUGE_MAX77843)
+#include <linux/battery/fuelgauge/max77843_fuelgauge.h>
 #endif
 
 #include <linux/qpnp/pin.h>
@@ -36,105 +38,8 @@ extern unsigned int system_rev;
 static struct qpnp_vadc_chip *adc_client;
 static enum qpnp_vadc_channels temp_channel;
 static enum qpnp_vadc_channels chg_temp_channel;
-#if defined(CONFIG_BATTERY_SAMSUNG_DATA)
+
 #include CONFIG_BATTERY_SAMSUNG_DATA_FILE
-#else //CONFIG_BATTERY_SAMSUNG_DATA
-#if defined(CONFIG_FUELGAUGE_MAX17048)
-static struct max17048_fuelgauge_battery_data_t max17048_battery_data[] = {
-	/* SDI battery data (High voltage 4.35V) */
-	{
-		.RCOMP0 = 0x5D,
-		.RCOMP_charging = 0x5D,
-		.temp_cohot = -175,
-		.temp_cocold = -5825,
-		.is_using_model_data = true,
-		.type_str = "SDI",
-	}
-};
-#endif
-
-#if defined(CONFIG_FUELGAUGE_MAX77823) || defined(CONFIG_FUELGAUGE_MAX77843)
-static struct max77823_fuelgauge_battery_data_t max77823_battery_data[] = {
-	/* SDI battery data (High voltage 4.4V) */
-	{
-		.Capacity = 0x187E, /* TR/TB : 3220mAh */
-		.low_battery_comp_voltage = 3500,
-		.low_battery_table = {
-			/* range, slope, offset */
-			{-5000,	0,	0},	/* dummy for top limit */
-			{-1250, 0,	3320},
-			{-750, 97,	3451},
-			{-100, 96,	3461},
-			{0, 0,	3456},
-		},
-		.temp_adjust_table = {
-			/* range, slope, offset */
-			{47000, 122,	8950},
-			{60000, 200,	51000},
-			{100000, 0,	0},	/* dummy for top limit */
-		},
-		.type_str = "SDI",
-	}
-};
-#endif
-
-#define CAPACITY_MAX			990
-#define CAPACITY_MAX_MARGIN	50
-#define CAPACITY_MIN			-7
-
-static sec_bat_adc_table_data_t temp_table[] = {
-	{26009, 900},
-	{26280, 850},
-	{26600, 800},
-	{26950, 750},
-	{27325, 700},
-	{27737, 650},
-	{28180, 600},
-	{28699, 550},
-	{29360, 500},
-	{29970, 450},
-	{30995, 400},
-	{32046, 350},
-	{32985, 300},
-	{34050, 250},
-	{35139, 200},
-	{36179, 150},
-	{37208, 100},
-	{38237, 50},
-	{38414, 40},
-	{38598, 30},
-	{38776, 20},
-	{38866, 10},
-	{38956, 0},
-	{39102, -10},
-	{39247, -20},
-	{39393, -30},
-	{39538, -40},
-	{39684, -50},
-	{40490, -100},
-	{41187, -150},
-	{41652, -200},
-	{42030, -250},
-	{42327, -300},
-};
-
-static sec_bat_adc_table_data_t chg_temp_table[] = {
-	{0, 0},
-};
-
-#define TEMP_HIGH_THRESHOLD_EVENT	600
-#define TEMP_HIGH_RECOVERY_EVENT		460
-#define TEMP_LOW_THRESHOLD_EVENT		-50
-#define TEMP_LOW_RECOVERY_EVENT		0
-#define TEMP_HIGH_THRESHOLD_NORMAL	600
-#define TEMP_HIGH_RECOVERY_NORMAL	460
-#define TEMP_LOW_THRESHOLD_NORMAL	-50
-#define TEMP_LOW_RECOVERY_NORMAL	0
-#define TEMP_HIGH_THRESHOLD_LPM		600
-#define TEMP_HIGH_RECOVERY_LPM		460
-#define TEMP_LOW_THRESHOLD_LPM		-50
-#define TEMP_LOW_RECOVERY_LPM		0
-#endif
 
 void sec_bat_check_batt_id(struct sec_battery_info *battery)
 {
@@ -550,6 +455,14 @@ void board_battery_init(struct platform_device *pdev, struct sec_battery_info *b
 	}
 
 	battery->pdata->event_check = true;
+#if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
+	battery->pdata->temp_highlimit_threshold_event = TEMP_HIGHLIMIT_THRESHOLD;
+	battery->pdata->temp_highlimit_recovery_event = TEMP_HIGHLIMIT_RECOVERY;
+	battery->pdata->temp_highlimit_threshold_normal = TEMP_HIGHLIMIT_THRESHOLD;
+	battery->pdata->temp_highlimit_recovery_normal =TEMP_HIGHLIMIT_RECOVERY;
+	battery->pdata->temp_highlimit_threshold_lpm = TEMP_HIGHLIMIT_THRESHOLD;
+	battery->pdata->temp_highlimit_recovery_lpm = TEMP_HIGHLIMIT_RECOVERY;
+#endif
 	battery->pdata->temp_high_threshold_event = TEMP_HIGH_THRESHOLD_EVENT;
 	battery->pdata->temp_high_recovery_event = TEMP_HIGH_RECOVERY_EVENT;
 	battery->pdata->temp_low_threshold_event = TEMP_LOW_THRESHOLD_EVENT;
@@ -562,7 +475,15 @@ void board_battery_init(struct platform_device *pdev, struct sec_battery_info *b
 	battery->pdata->temp_high_recovery_lpm = TEMP_HIGH_RECOVERY_LPM;
 	battery->pdata->temp_low_threshold_lpm = TEMP_LOW_THRESHOLD_LPM;
 	battery->pdata->temp_low_recovery_lpm = TEMP_LOW_RECOVERY_LPM;
-
+#if defined(CONFIG_BATTERY_SWELLING)
+	battery->pdata->swelling_high_temp_block = BATT_SWELLING_HIGH_TEMP_BLOCK;
+	battery->pdata->swelling_high_temp_recov = BATT_SWELLING_HIGH_TEMP_RECOV;
+	battery->pdata->swelling_low_temp_blck = BATT_SWELLING_LOW_TEMP_BLOCK;
+	battery->pdata->swelling_low_temp_recov = BATT_SWELLING_LOW_TEMP_RECOV;
+	battery->pdata->swelling_drop_float_voltage = BATT_SWELLING_DROP_FLOAT_VOLTAGE;
+	battery->pdata->swelling_rechg_voltage = BATT_SWELLING_RECHG_VOLTAGE;
+	battery->pdata->swelling_block_time = BATT_SWELLING_BLOCK_TIME;
+#endif
 	adc_init_type(pdev, battery);
 }
 
@@ -601,14 +522,14 @@ void board_fuelgauge_init(void *data)
 		}
 	}
 #endif
-#elif defined(CONFIG_FUELGAUGE_MAX77823) || defined(CONFIG_FUELGAUGE_MAX77843)
-	struct max77823_fuelgauge_data *fuelgauge =
-		(struct max77823_fuelgauge_data *)data;
+#elif defined(CONFIG_FUELGAUGE_MAX77843)
+	struct max77843_fuelgauge_data *fuelgauge =
+			(struct max77843_fuelgauge_data *)data;
 
-	if (!fuelgauge->battery_data) {
-		pr_info("%s : assign battery data\n", __func__);
-		fuelgauge->battery_data = max77823_battery_data;
-	}
+		if (!fuelgauge->battery_data) {
+			pr_info("%s : assign battery data\n", __func__);
+			fuelgauge->battery_data = max77843_battery_data;
+		}
 #endif
 }
 

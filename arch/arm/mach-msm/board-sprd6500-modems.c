@@ -281,7 +281,7 @@ void sprd6500_modem_cfg_gpio(struct device *dev)
 	of_property_read_u32(dev->of_node, "mif_cp2,phone_active-gpio", &gsm_modem_data.gpio_phone_active);
 	of_property_read_u32(dev->of_node, "mif_cp2,ap_cp_int1-gpio", &gsm_modem_data.gpio_ap_cp_int1);
 	of_property_read_u32(dev->of_node, "mif_cp2,ap_cp_int2-gpio", &gsm_modem_data.gpio_ap_cp_int2);
-	of_property_read_u32(dev->of_node, "mif_cp2,uart_sel-gpio", &gsm_modem_data.gpio_uart_sel );
+	gsm_modem_data.gpio_uart_sel = of_get_named_gpio(dev->of_node, "mif_cp2,uart_sel-gpio", 0);
 	of_property_read_u32(dev->of_node, "mif_cp2,sim_sel-gpio", &gsm_modem_data.gpio_sim_sel);
 	of_property_read_u32(dev->of_node, "mif_cp2,uart_txd-gpio", &gsm_modem_data.gpio_uart_txd);
 	of_property_read_u32(dev->of_node, "mif_cp2,uart_rxd-gpio", &gsm_modem_data.gpio_uart_rxd);

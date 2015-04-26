@@ -235,7 +235,7 @@ static ssize_t gyro_selftest_show(struct device *dev,
 		goto exit;
 	}
 
-	pr_info("[SSP]: %s - %d %d %d %d %d %d %d %d %d %d %d %d %d",
+	pr_info("[SSP]: %s - %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
 		__func__, chTempBuf[0], chTempBuf[1], chTempBuf[2],
 		chTempBuf[3], chTempBuf[4], chTempBuf[5], chTempBuf[6],
 		chTempBuf[7], chTempBuf[8], chTempBuf[9], chTempBuf[10],

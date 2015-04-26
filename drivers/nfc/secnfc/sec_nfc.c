@@ -52,6 +52,8 @@
 #include <linux/regulator/consumer.h>
 #include <mach/gpiomux.h>
 
+#include <linux/wakelock.h>
+
 
 #ifndef BU80003GUL
 
@@ -392,6 +394,7 @@ struct sec_nfc_info {
 	enum sec_nfc_state state;
 	struct device *dev;
 	struct sec_nfc_platform_data *pdata;
+	struct wake_lock wake_lock;
 
 #ifdef	CONFIG_SEC_NFC_I2C
 	struct i2c_client *i2c_dev;
@@ -666,10 +669,21 @@ static long sec_nfc_ioctl(struct file *file, unsigned int cmd,
                 firm = gpio_get_value(info->pdata->firm);
                 pr_info("%s: [NFC] Firm pin = %d\n", __func__, firm);
 
-		if(mode == SEC_NFC_ST_UART_ON)
+		if(mode == SEC_NFC_ST_UART_ON) {
 			gpio_set_value(info->pdata->firm, STATE_FIRM_HIGH);
-		else if(mode == SEC_NFC_ST_UART_OFF)
+			
+			if(!wake_lock_active(&info->wake_lock)) {
+				pr_info("%s: [NFC] wake lock.\n", __func__);
+				wake_lock(&info->wake_lock);
+			}
+		} else if(mode == SEC_NFC_ST_UART_OFF) {
 			gpio_set_value(info->pdata->firm, STATE_FIRM_LOW);
+			
+			if(wake_lock_active(&info->wake_lock)) {
+				pr_info("%s: [NFC] wake unlock after 5 sec.\n", __func__);
+				wake_lock_timeout(&info->wake_lock, 5 * HZ);
+			}
+		}
 		else
 			ret = -EFAULT;
 
@@ -978,6 +992,8 @@ static int sec_nfc_probe(struct platform_device *pdev)
 
 #endif
 
+	wake_lock_init(&info->wake_lock, WAKE_LOCK_SUSPEND, "NFCWAKE");
+
 	info->miscdev.minor = MISC_DYNAMIC_MINOR;
 	info->miscdev.name = SEC_NFC_DRIVER_NAME;
 	info->miscdev.fops = &sec_nfc_fops;
@@ -1035,6 +1051,7 @@ err_info_alloc:
 		if (info->pdata != NULL) {
 			kfree(info->pdata);
 		}
+		wake_lock_destroy(&info->wake_lock);
 		kfree(info);
 	}
 err_pdata:
@@ -1084,6 +1101,8 @@ ERR_SEC_NFC_REMOVE_INFO:
 #ifdef	CONFIG_SEC_NFC_I2C
 	free_irq(pdata->irq, info);
 #endif
+
+	wake_lock_destroy(&info->wake_lock);
 
 #ifdef BU80003GUL
 	i2c_del_driver(&bu80003gul_i2c_driver);

@@ -25,6 +25,7 @@
 		qcom,rst-gpio = <&pma8084_gpios 21 0>;
 		qcom,te-gpio = <&msmgpio 12 0>;
 
+		qcom,cmd-sync-wait-broadcast;
 		qcom,cont-splash-enabled;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
@@ -889,6 +890,8 @@
 		qcom,rst-gpio = <&pma8084_gpios 21 0>;
 		qcom,te-gpio = <&msmgpio 12 0>;
 
+		qcom,cmd-sync-wait-broadcast;
+		qcom,cmd-sync-wait-trigger; /*SYNC UP WITH DSI1*/
 		qcom,cont-splash-enabled;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
@@ -972,8 +975,8 @@
 					01 22 22 10
 				29 01 00 00 00 00 02 B5 41			/* 16 frame Averaging (0x41) */
 
-				23 01 00 00 00 00 02 F7 03			/* update */
-				23 01 00 00 01 00 02 F7 00			/* update */
+				23 01 00 00 01 00 02 F7 03			/* update */
+				23 01 00 00 00 00 02 F7 00			/* update */
 
 				/* TE OUT (Vsync) */
 				23 01 00 00 00 00 02 35 00			/* TE Vsync ON */
@@ -1087,6 +1090,8 @@
 			samsung,panel-manufacture-date-read-cmds = [ 06 01 00 00 00 00 01 c8 02 28];	/* read C8 41~42th , 40=0x28*/
 
 			samsung,panel-ddi-id-read-cmds = [ 06 01 00 00 00 00 01 d6 05 00];	/* read D6 1~5th */
+
+			samsung,panel-rddpm-read-cmds = [ 06 01 00 00 00 00 01 0A 01 00];	/* read 0A 1st */
 
 			samsung,panel-ldi-debug-read-cmds = [
 								06 01 00 00 00 00 01 0A 01 00

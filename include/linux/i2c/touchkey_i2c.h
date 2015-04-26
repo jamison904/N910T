@@ -261,6 +261,7 @@ struct cypress_touchkey_info {
 	bool is_powering_on;
 	bool enabled;
 	bool done_ta_setting;
+	bool init_done;
 
 #ifdef TKEY_FLIP_MODE
 	bool enabled_flip;

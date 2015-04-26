@@ -689,8 +689,9 @@ static int acm_notify_serial_state(struct f_acm *acm)
 {
 	struct usb_composite_dev *cdev = acm->port.func.config->cdev;
 	int			status;
+	unsigned long flags;
 
-	spin_lock(&acm->lock);
+	spin_lock_irqsave(&acm->lock, flags);
 	if (acm->notify_req) {
 		DBG(cdev, "acm ttyGS%d serial state %04x\n",
 				acm->port_num, acm->serial_state);
@@ -700,7 +701,7 @@ static int acm_notify_serial_state(struct f_acm *acm)
 		acm->pending = true;
 		status = 0;
 	}
-	spin_unlock(&acm->lock);
+	spin_unlock_irqrestore(&acm->lock, flags);
 	return status;
 }
 

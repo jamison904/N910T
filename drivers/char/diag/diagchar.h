@@ -24,6 +24,7 @@
 #include <linux/wakelock.h>
 #include <mach/msm_smd.h>
 #include <asm/atomic.h>
+#include <linux/ipc_logging.h>
 
 /* Size of the USB buffers used for read and write*/
 #define USB_MAX_OUT_BUF 4096
@@ -134,6 +135,26 @@
 #define MODE_CMD	41
 #define RESET_ID	2
 
+extern int diag_debug_lvl;
+extern void *diag_ipc_log;
+
+#define DIAG_IPC_LOG_PAGES	50
+#define DIAG_DEBUG_CRITICAL	0
+#define DIAG_DEBUG_HIGH		1
+#define DIAG_DEBUG_MED		2
+#define DIAG_DEBUG_LOW		3
+#define DIAG_DEBUG_VERBOSE	4
+#define DIAG_DEBUG_ERROR	5
+
+#define DIAG_LOG(log_lvl, msg, ...)					\
+	do {								\
+		if ((log_lvl) >= diag_debug_lvl)			\
+			pr_alert(msg, ##__VA_ARGS__);			\
+		if (diag_ipc_log)					\
+			ipc_log_string(diag_ipc_log, msg, ##__VA_ARGS__); \
+	} while (0)
+
+
 /*
  * The status bit masks when received in a signal handler are to be
  * used in conjunction with the peripheral list bit mask to determine the
@@ -190,6 +211,9 @@
 /* Local Processor only */
 #define DIAG_NUM_PROC	1
 #endif
+
+#define DIAG_WS_DCI		0
+#define DIAG_WS_MD		1
 
 /* Maximum number of pkt reg supported at initialization*/
 extern int diag_max_reg;
@@ -254,14 +278,6 @@ struct diag_client_map {
 	int pid;
 };
 
-struct diag_nrt_wake_lock {
-	int enabled;
-	int ref_count;
-	int copy_count;
-	struct wake_lock read_lock;
-	spinlock_t read_spinlock;
-};
-
 struct real_time_vote_t {
 	int client_id;
 	uint16_t proc;
@@ -272,6 +288,12 @@ struct real_time_query_t {
 	int real_time;
 	int proc;
 } __packed;
+
+struct diag_ws_ref_t {
+	int ref_count;
+	int copy_count;
+	spinlock_t lock;
+};
 
 /* This structure is defined in USB header file */
 #ifndef CONFIG_DIAG_OVER_USB
@@ -314,8 +336,6 @@ struct diag_smd_info {
 	struct diag_request *write_ptr_1;
 	struct diag_request *write_ptr_2;
 
-	struct diag_nrt_wake_lock nrt_lock;
-
 	struct workqueue_struct *wq;
 
 	struct work_struct diag_read_smd_work;
@@ -351,6 +371,7 @@ struct diagchar_dev {
 	struct diag_client_map *client_map;
 	int *data_ready;
 	int num_clients;
+	int num_dci_cmd;
 	int polling_reg_flag;
 	struct diag_write_device *buf_tbl;
 	unsigned int buf_tbl_size;
@@ -472,6 +493,10 @@ struct diagchar_dev {
 	int logging_process_id;
 	struct task_struct *socket_process;
 	struct task_struct *callback_process;
+	/* Power related variables */
+	struct diag_ws_ref_t dci_ws;
+	struct diag_ws_ref_t md_ws;
+	spinlock_t ws_lock;
 
 #ifdef CONFIG_DIAGFWD_BRIDGE_CODE
 	/* common for all bridges */
@@ -499,5 +524,14 @@ extern uint16_t wrap_count;
 void diag_get_timestamp(char *time_str);
 int diag_find_polling_reg(int i);
 void check_drain_timer(void);
+
+void diag_ws_init(void);
+void diag_ws_on_notify(void);
+void diag_ws_on_read(int type, int pkt_len);
+void diag_ws_on_copy(int type);
+void diag_ws_on_copy_fail(int type);
+void diag_ws_on_copy_complete(int type);
+void diag_ws_reset(int type);
+void diag_ws_release(void);
 
 #endif

@@ -24,6 +24,8 @@
 
 #define CNSS_MAX_FILE_NAME	  20
 
+#define MAX_FIRMWARE_SIZE (512 * 1024)
+
 enum cnss_bus_width_type {
 	CNSS_BUS_WIDTH_NONE,
 	CNSS_BUS_WIDTH_LOW,
@@ -38,6 +40,7 @@ struct cnss_fw_files {
 	char otp_data[CNSS_MAX_FILE_NAME];
 	char utf_file[CNSS_MAX_FILE_NAME];
 	char utf_board_data[CNSS_MAX_FILE_NAME];
+	char epping_file[CNSS_MAX_FILE_NAME];
 };
 
 struct cnss_wlan_driver {
@@ -75,6 +78,9 @@ extern int cnss_get_ramdump_mem(unsigned long *address, unsigned long *size);
 extern int cnss_set_wlan_unsafe_channel(u16 *unsafe_ch_list, u16 ch_count);
 extern int cnss_get_wlan_unsafe_channel(u16 *unsafe_ch_list,
 						u16 *ch_count, u16 buf_len);
+extern void cnss_schedule_recovery_work(void);
+extern void cnss_wlan_pci_link_down(void);
+extern int cnss_pcie_shadow_control(struct pci_dev *dev, bool enable);
 extern int cnss_wlan_register_driver(struct cnss_wlan_driver *driver);
 extern void cnss_wlan_unregister_driver(struct cnss_wlan_driver *driver);
 extern int cnss_get_fw_files(struct cnss_fw_files *pfw_files);
@@ -82,12 +88,17 @@ extern void cnss_flush_work(void *work);
 extern void cnss_flush_delayed_work(void *dwork);
 extern void cnss_get_monotonic_boottime(struct timespec *ts);
 extern int cnss_request_bus_bandwidth(int bandwidth);
+extern int cnss_get_sha_hash(const u8 *data, u32 data_len,
+					u8 *hash_idx, u8 *out);
+extern void *cnss_get_fw_ptr(void);
 
 extern void cnss_pm_wake_lock_init(struct wakeup_source *ws, const char *name);
 extern void cnss_pm_wake_lock(struct wakeup_source *ws);
 extern void cnss_pm_wake_lock_timeout(struct wakeup_source *ws, ulong msec);
 extern void cnss_pm_wake_lock_release(struct wakeup_source *ws);
 extern void cnss_pm_wake_lock_destroy(struct wakeup_source *ws);
+extern void cnss_lock_pm_sem(void);
+extern void cnss_release_pm_sem(void);
 
 extern int cnss_set_cpus_allowed_ptr(struct task_struct *task, ulong cpu);
 extern void cnss_request_pm_qos(u32 qos_val);

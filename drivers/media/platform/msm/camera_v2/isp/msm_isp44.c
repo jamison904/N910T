@@ -216,8 +216,10 @@ static int msm_vfe44_init_hardware(struct vfe_device *vfe_dev)
 	return rc;
 irq_req_failed:
 	iounmap(vfe_dev->vfe_vbif_base);
+	vfe_dev->vfe_vbif_base = NULL;
 vbif_remap_failed:
 	iounmap(vfe_dev->vfe_base);
+	vfe_dev->vfe_base = NULL;
 vfe_remap_failed:
 	msm_cam_clk_enable(&vfe_dev->pdev->dev, msm_vfe44_clk_info,
 		vfe_dev->vfe_clk, ARRAY_SIZE(msm_vfe44_clk_info), 0);
@@ -239,7 +241,9 @@ static void msm_vfe44_release_hardware(struct vfe_device *vfe_dev)
 	free_irq(vfe_dev->vfe_irq->start, vfe_dev);
 	tasklet_kill(&vfe_dev->vfe_tasklet);
 	iounmap(vfe_dev->vfe_vbif_base);
+	vfe_dev->vfe_vbif_base = NULL;
 	iounmap(vfe_dev->vfe_base);
+	vfe_dev->vfe_base = NULL;
 	msm_cam_clk_enable(&vfe_dev->pdev->dev, msm_vfe44_clk_info,
 		vfe_dev->vfe_clk, ARRAY_SIZE(msm_vfe44_clk_info), 0);
 	regulator_disable(vfe_dev->fs_vfe);
@@ -797,14 +801,18 @@ static void msm_vfe44_update_camif_state(struct vfe_device *vfe_dev,
 	if (update_state == NO_UPDATE)
 		return;
 
-	val = msm_camera_io_r(vfe_dev->vfe_base + 0x2F8);
+//qualcomm Patch : Enable SOF bits during ENABLE_CAMIF ::	val = msm_camera_io_r(vfe_dev->vfe_base + 0x2F8);
 	if (update_state == ENABLE_CAMIF) {
+		val = msm_camera_io_r(vfe_dev->vfe_base + 0x28);
+		val |= 0xF3;
+		msm_camera_io_w_mb(val, vfe_dev->vfe_base + 0x28);
 		bus_en =
 			((vfe_dev->axi_data.
 			src_info[VFE_PIX_0].raw_stream_count > 0) ? 1 : 0);
 		vfe_en =
 			((vfe_dev->axi_data.
 			src_info[VFE_PIX_0].pix_stream_count > 0) ? 1 : 0);
+		val = msm_camera_io_r(vfe_dev->vfe_base + 0x2F8);
 		val &= 0xFFFFFF3F;
 		val = val | bus_en << 7 | vfe_en << 6;
 		msm_camera_io_w(val, vfe_dev->vfe_base + 0x2F8);

@@ -3327,6 +3327,7 @@ static int hdmi_tx_panel_event_handler(struct mdss_panel_data *panel_data,
 			if (rc)
 				DEV_ERR("%s: hdmi_tx_hpd_on failed. rc=%d\n",
 						__func__, rc);
+			hdmi_ctrl->hpd_state = true;
 		}
 #endif
 		rc = hdmi_tx_power_on(panel_data);

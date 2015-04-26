@@ -23,7 +23,7 @@
 
 struct sec_charger_info {
 	struct i2c_client		*client;
-	sec_battery_platform_data_t *pdata;
+	sec_charger_platform_data_t *pdata;
 	struct power_supply		psy_chg;
 	struct delayed_work isr_work;
 

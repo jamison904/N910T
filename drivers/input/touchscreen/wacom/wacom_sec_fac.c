@@ -485,6 +485,46 @@ static ssize_t epen_saving_mode_store(struct device *dev,
 }
 #endif
 
+#ifdef WACOM_MAINSCREEN_DISABLE
+#define MAIN_DIS 	0xDE // : Enter 2nd screen only mode command.
+#define MAIN_EN	  	0xDF // : Exit 2nd screen only mode command.
+
+static ssize_t epen_mainscreen_disable_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t count)
+{
+	struct wacom_i2c *wac_i2c = dev_get_drvdata(dev);
+	int val, ret;
+	int retry = 3; 
+	u8 cmd = 0;
+	int disable_cmd = 0;
+
+
+	if (sscanf(buf, "%u", &val) == 1)
+		disable_cmd = !!val;
+
+	dev_info(&wac_i2c->client->dev, "%s: %s\n",	__func__, val ? "yes" : "no");
+
+	if(disable_cmd){
+		cmd = MAIN_DIS;	
+	}else{
+		cmd = MAIN_EN;	
+	}
+
+	while (retry--) {
+		ret = wac_i2c->wacom_i2c_send(wac_i2c, &cmd, 1, false);
+		if (ret < 0) {
+			dev_err(&wac_i2c->client->dev, "%s: i2c fail, retry, %d\n",
+					  __func__, __LINE__);
+			continue;
+		}
+		break;
+	}
+
+	return count;
+}
+#endif
+
 #ifdef WACOM_BOOSTER
 static ssize_t boost_level_store(struct device *dev,
 				   struct device_attribute *attr,
@@ -609,6 +649,11 @@ static DEVICE_ATTR(epen_saving_mode,
 static DEVICE_ATTR(boost_level,
 		   S_IWUSR | S_IWGRP, NULL, boost_level_store);
 #endif
+#ifdef WACOM_MAINSCREEN_DISABLE
+static DEVICE_ATTR(epen_main_disable,
+		   S_IWUSR | S_IWGRP, NULL, epen_mainscreen_disable_store);
+#endif
+
 static DEVICE_ATTR(epen_report_rate, S_IWUSR | S_IWGRP | S_IRUGO,
 			epen_report_rate_show, epen_report_rate_store);
 
@@ -636,6 +681,10 @@ static struct attribute *epen_attributes[] = {
 #ifdef WACOM_BOOSTER
 	&dev_attr_boost_level.attr,
 #endif
+#ifdef WACOM_MAINSCREEN_DISABLE
+	&dev_attr_epen_main_disable.attr,
+#endif
+
 	&dev_attr_epen_report_rate.attr,
 	NULL,
 };

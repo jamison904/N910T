@@ -44,6 +44,57 @@
 #include <linux/msm-bus.h>
 #include <linux/msm-bus-board.h>
 #include "spi_qsd.h"
+#include <mach/msm_iomap.h>
+#include <linux/io.h>
+
+
+#define GPIO_CFG_DEBUG(n) (MSM_TLMM_BASE + 0x1000 + (0x10 * n))
+
+static void msm_spi_dump_qup_reg(struct msm_spi *dd)
+{
+	int offset = 0;
+
+	pr_err("Dumping Register for Base \n");
+	for (offset =0; offset <= 0x30; offset+=20)
+		pr_err( "Reg=0x%.2x: 0x%.8x, 0x%.8x, 0x%.8x, 0x%.8x 0x%.8x\n", offset,
+			readl_relaxed(dd->base + offset),
+			readl_relaxed(dd->base + (offset + 4)),
+			readl_relaxed(dd->base + (offset + 8)),
+			readl_relaxed(dd->base + (offset + 12)),
+			readl_relaxed(dd->base + (offset + 16)));
+
+	for (offset =0x100; offset <= 0x10c; offset+=20)
+		pr_err( "Reg=0x%.2x: 0x%.8x, 0x%.8x, 0x%.8x, 0x%.8x 0x%.8x\n", offset,
+			readl_relaxed(dd->base + offset),
+			readl_relaxed(dd->base + (offset + 4)),
+			readl_relaxed(dd->base + (offset + 8)),
+			readl_relaxed(dd->base + (offset + 12)),
+			readl_relaxed(dd->base + (offset + 16)));
+
+	for (offset =0x150; offset <= 0x154; offset+=20)
+		pr_err( "Reg=0x%.2x: 0x%.8x, 0x%.8x, 0x%.8x, 0x%.8x 0x%.8x\n", offset,
+			readl_relaxed(dd->base + offset),
+			readl_relaxed(dd->base + (offset + 4)),
+			readl_relaxed(dd->base + (offset + 8)),
+			readl_relaxed(dd->base + (offset + 12)),
+			readl_relaxed(dd->base + (offset + 16)));
+
+	for (offset =0x200; offset <= 0x218; offset+=20)
+		pr_err( "Reg=0x%.2x: 0x%.8x, 0x%.8x, 0x%.8x, 0x%.8x 0x%.8x\n", offset,
+			readl_relaxed(dd->base + offset),
+			readl_relaxed(dd->base + (offset + 4)),
+			readl_relaxed(dd->base + (offset + 8)),
+			readl_relaxed(dd->base + (offset + 12)),
+			readl_relaxed(dd->base + (offset + 16)));
+
+	for (offset =0x300; offset <= 0x32C; offset+=20)
+		pr_err( "Reg=0x%.2x: 0x%.8x, 0x%.8x, 0x%.8x, 0x%.8x 0x%.8x\n", offset,
+			readl_relaxed(dd->base + offset),
+			readl_relaxed(dd->base + (offset + 4)),
+			readl_relaxed(dd->base + (offset + 8)),
+			readl_relaxed(dd->base + (offset + 12)),
+			readl_relaxed(dd->base + (offset + 16)));
+}
 
 static int msm_spi_pm_resume_runtime(struct device *device);
 static int msm_spi_pm_suspend_runtime(struct device *device);
@@ -1563,6 +1614,15 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 				dev_err(dd->dev,
 					"%s: SPI transaction timeout\n",
 					__func__);
+				pr_err("***debug gpio 0:[0x%x], gpio 1 [0x%x], gpio 2[0x%x],  gpio 3[0x%x]\n", __raw_readl(GPIO_CFG_DEBUG(0)),
+					__raw_readl(GPIO_CFG_DEBUG(1)), __raw_readl(GPIO_CFG_DEBUG(2)), __raw_readl(GPIO_CFG_DEBUG(3)));
+				msm_spi_dump_qup_reg(dd);
+				if (dd->mode == SPI_BAM_MODE)
+				{
+					/* Dump the BAM and QUP Registers */
+					sps_get_bam_debug_info(dd->bam.handle, 95, SPS_BAM_PIPE(dd->pdata->bam_producer_pipe_index)|
+							       SPS_BAM_PIPE(dd->pdata->bam_consumer_pipe_index), 0, 2);
+				}
 				dd->cur_msg->status = -EIO;
 				break;
 		}
@@ -2561,6 +2621,7 @@ skip_dma_resources:
 
 	spin_lock_init(&dd->queue_lock);
 	mutex_init(&dd->core_lock);
+	init_waitqueue_head(&dd->continue_suspend);
 
 	if (!devm_request_mem_region(&pdev->dev, dd->mem_phys_addr,
 					dd->mem_size, SPI_DRV_NAME)) {

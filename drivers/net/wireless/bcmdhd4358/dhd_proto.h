@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_proto.h 501077 2014-09-06 12:02:18Z $
+ * $Id: dhd_proto.h 514471 2014-11-11 05:53:29Z $
  */
 
 #ifndef _dhd_proto_h_
@@ -45,6 +45,7 @@
 #ifndef MFG_IOCTL_RESP_TIMEOUT
 #define MFG_IOCTL_RESP_TIMEOUT  20000  /* In milli second default value for MFG FW */
 #endif /* MFG_IOCTL_RESP_TIMEOUT */
+#define IOCTL_DISABLE_TIMEOUT 0
 
 /*
  * Exported from the dhd protocol module (dhd_cdc, dhd_rndis)

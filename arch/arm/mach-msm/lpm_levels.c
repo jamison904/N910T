@@ -85,6 +85,7 @@ struct lpm_system_state {
 static struct lpm_system_state sys_state;
 static bool suspend_in_progress;
 static int64_t suspend_time;
+static int64_t time;
 
 struct lpm_lookup_table {
 	uint32_t modes;
@@ -310,7 +311,10 @@ static int lpm_system_mode_select(struct lpm_system_state *system_state,
 
 		if (suspend_in_progress && from_idle
 				&& system_level->notify_rpm)
-				continue;
+			continue;
+
+		if (system_level->notify_rpm && msm_rpm_waiting_for_ack())
+			continue;
 
 		if ((sleep_us >> 10) > pwr_params->time_overhead_us) {
 			pwr = pwr_params->ss_power;
@@ -405,6 +409,8 @@ static void lpm_system_prepare(struct lpm_system_state *system_state,
 	do_div(us, USEC_PER_SEC/SCLK_HZ);
 	sclk = (uint32_t)us;
 	msm_mpm_enter_sleep(sclk, from_idle, &nextcpu);
+	if (from_idle)
+		time = sched_clock();
 skip_rpm:
 	system_state->last_entered_cluster_index = index;
 	spin_unlock(&system_state->sync_lock);
@@ -452,7 +458,10 @@ static void lpm_system_unprepare(struct lpm_system_state *system_state,
 
 	if (index < 0)
 		goto unlock_and_return;
-
+	if (from_idle) {
+		time = sched_clock() - time;
+		msm_pm_l2_add_stat(system_state->system_level[index].l2_mode, time);
+	}
 	if (default_l2_mode != system_state->system_level[index].l2_mode)
 		lpm_set_l2_mode(system_state, default_l2_mode);
 
@@ -554,11 +563,6 @@ static int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 
 		if (!allow)
 			continue;
-
-		if ((MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE == mode)
-			|| (MSM_PM_SLEEP_MODE_POWER_COLLAPSE == mode))
-			if (!dev->cpu && msm_rpm_waiting_for_ack())
-				break;
 
 		lvl_latency_us = pwr_params->latency_us;
 

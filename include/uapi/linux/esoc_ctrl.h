@@ -53,6 +53,8 @@ enum esoc_notify {
 	ESOC_DEBUG_FAIL,
 	ESOC_PRIMARY_CRASH,
 	ESOC_PRIMARY_REBOOT,
+	ESOC_FORCE_CPCRASH,
+	ESOC_DIAG_DISABLE,
 };
 
 enum esoc_req {

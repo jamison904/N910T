@@ -34,11 +34,11 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
+#include <sound/q6core.h>
 #include <soc/qcom/subsystem_notif.h>
 #include "msm8x16-wcd.h"
 #include "msm8916-wcd-irq.h"
 #include "msm8x16_wcd_registers.h"
-#include "../msm/qdsp6v2/q6core.h"
 
 #define MSM8X16_WCD_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
 			SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000)
@@ -863,7 +863,7 @@ static int msm8x16_wcd_put_iir_band_audio_mixer(
 }
 
 static const char * const msm8x16_wcd_ear_pa_gain_text[] = {
-		"POS_6_DB", "POS_1P5_DB"};
+		"POS_1P5_DB", "POS_6_DB"};
 static const struct soc_enum msm8x16_wcd_ear_pa_gain_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, msm8x16_wcd_ear_pa_gain_text),
 };
@@ -2487,6 +2487,7 @@ static const struct msm8x16_wcd_reg_mask_val msm8x16_wcd_reg_defaults[] = {
 	MSM8X16_WCD_REG_VAL(MSM8X16_WCD_A_ANALOG_TX_2_EN, 0x32),
 	MSM8X16_WCD_REG_VAL(MSM8X16_WCD_A_DIGITAL_CDC_DIG_CLK_CTL, 0x10),
 	*/
+	MSM8X16_WCD_REG_VAL(MSM8X16_WCD_A_ANALOG_SPKR_OCP_CTL, 0xE1),
 };
 
 static void msm8x16_wcd_update_reg_defaults(struct snd_soc_codec *codec)

@@ -190,17 +190,10 @@ int sysctl_lowmem_reserve_ratio[MAX_NR_ZONES-1] = {
 #ifdef CONFIG_ZONE_DMA32
 	 256,
 #endif
-#if defined(CONFIG_SEC_LENTIS_PROJECT) || defined(CONFIG_SEC_KCCAT6_PROJECT)
 #ifdef CONFIG_HIGHMEM
 	 128,
 #endif
 	 128,
-#else
-#ifdef CONFIG_HIGHMEM
-	 32,
-#endif
-	 32,
-#endif
 };
 
 EXPORT_SYMBOL(totalram_pages);
@@ -399,9 +392,11 @@ void prep_compound_page(struct page *page, unsigned long order)
 	__SetPageHead(page);
 	for (i = 1; i < nr_pages; i++) {
 		struct page *p = page + i;
-		__SetPageTail(p);
 		set_page_count(p, 0);
 		p->first_page = page;
+		/* Make sure p->first_page is always valid for PageTail() */
+		smp_wmb();
+		__SetPageTail(p);
 	}
 }
 
@@ -1422,6 +1417,17 @@ void free_hot_cold_page(struct page *page, int cold)
 	struct per_cpu_pages *pcp;
 	unsigned long flags;
 	int migratetype;
+
+#ifdef CONFIG_SCFS_LOWER_PAGECACHE_INVALIDATION
+	/*
+	   struct scfs_sb_info *sbi;
+
+	   if (PageScfslower(page) || PageNocache(page)) {
+	   sbi = SCFS_S(page->mapping->host->i_sb);
+	   sbi->scfs_lowerpage_reclaim_count++;
+	   }
+	 */
+#endif
 
 	if (!free_pages_prepare(page, 0))
 		return;
@@ -2529,7 +2535,7 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	bool deferred_compaction = false;
 	bool contended_compaction = false;
 #ifdef CONFIG_SEC_OOM_KILLER
-	unsigned long oom_invoke_timeout = jiffies + HZ/4;
+	unsigned long oom_invoke_timeout = jiffies + HZ/50;
 #endif
 
 	/*
@@ -2697,7 +2703,7 @@ rebalance:
 			}
 
 #ifdef CONFIG_SEC_OOM_KILLER
-			oom_invoke_timeout = jiffies + HZ/4;
+			oom_invoke_timeout = jiffies + HZ/25;
 #endif
 			goto restart;
 		}
@@ -6377,6 +6383,10 @@ __offline_isolated_pages(unsigned long start_pfn, unsigned long end_pfn)
 		list_del(&page->lru);
 		rmv_page_order(page);
 		zone->free_area[order].nr_free--;
+#ifdef CONFIG_HIGHMEM
+		if (PageHighMem(page))
+			totalhigh_pages -= 1 << order;
+#endif
 		for (i = 0; i < (1 << order); i++)
 			SetPageReserved((page+i));
 		pfn += (1 << order);
@@ -6443,6 +6453,10 @@ static const struct trace_print_flags pageflag_names[] = {
 #endif
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	{1UL << PG_compound_lock,	"compound_lock"	},
+#endif
+#ifdef CONFIG_SCFS_LOWER_PAGECACHE_INVALIDATION
+	{1UL << PG_scfslower, "scfslower"},
+	{1UL << PG_nocache,"nocache"},
 #endif
 	{1UL << PG_readahead,           "PG_readahead"  },
 #ifdef CONFIG_SDP

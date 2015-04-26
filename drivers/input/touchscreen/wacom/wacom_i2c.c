@@ -247,6 +247,24 @@ int wacom_i2c_query(struct wacom_i2c *wac_i2c)
 	return wac_i2c->wac_query_data->fw_version_ic;
 }
 
+int wacom_i2c_modecheck(struct wacom_i2c *wac_i2c)
+{
+	u8 buf = COM_QUERY;
+	int ret;
+	int mode = WACOM_I2C_MODE_NORMAL;
+
+	ret = wacom_i2c_send(wac_i2c, &buf, 1, false);
+	if (ret < 0) {
+		mode = WACOM_I2C_MODE_BOOT;
+	}
+	else{
+		mode = WACOM_I2C_MODE_NORMAL;
+	}
+	dev_info(&wac_i2c->client->dev,
+		"%s :I2C send at usermode(%d)\n", __func__, ret);
+	return mode;
+}
+
 static void wacom_enable_irq(struct wacom_i2c *wac_i2c, bool enable)
 {
 	static int depth;
@@ -402,6 +420,8 @@ static void wacom_i2c_enable(struct wacom_i2c *wac_i2c)
 		if (!wac_i2c->power_enable)
 			wac_i2c->wacom_start(wac_i2c);
 
+		wac_i2c->compulsory_flash_mode(wac_i2c, false); /* compensation to protect from flash mode  */
+
 		cancel_delayed_work_sync(&wac_i2c->resume_work);
 		schedule_delayed_work(&wac_i2c->resume_work, HZ / 5);
 	}
@@ -421,6 +441,7 @@ static void wacom_i2c_disable(struct wacom_i2c *wac_i2c)
 			forced_release(wac_i2c);
 
 		wac_i2c->wacom_stop(wac_i2c);
+		wac_i2c->compulsory_flash_mode(wac_i2c, false); /* compensation to protect from flash mode  */
 	}
 }
 
@@ -629,8 +650,8 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 			input_report_abs(wac_i2c->input_dev,
 				ABS_DISTANCE, gain);
 
-			tilt_x = (s8)data[8];
-			tilt_y = (s8)data[9];
+			tilt_x = (s8)data[9];
+			tilt_y = -(s8)data[8];
 			input_report_abs(wac_i2c->input_dev,
 				ABS_TILT_X, tilt_x);
 			input_report_abs(wac_i2c->input_dev,
@@ -822,6 +843,8 @@ static irqreturn_t wacom_pen_detect(int irq, void *dev_id)
 	
 	if(wac_i2c->pen_insert != temp_gpio2){
 		schedule_delayed_work(&wac_i2c->pen_insert_dwork, HZ / 20);
+
+		wake_lock_timeout(&wac_i2c->wakelock_pen_insert, 3 * HZ);
 	}else{
 		dev_info(&wac_i2c->client->dev, "%s: ignored. state same.\n", __func__);
 	}
@@ -919,6 +942,9 @@ static void wacom_i2c_resume_work(struct work_struct *work)
 	}
 
 	wac_i2c->wacom_enable_irq(wac_i2c, true);
+
+	if (wacom_i2c_modecheck(wac_i2c))
+		wacom_i2c_usermode(wac_i2c);
 
 	dev_info(&wac_i2c->client->dev,
 			"%s\n", __func__);
@@ -1243,6 +1269,9 @@ static int wacom_i2c_remove(struct i2c_client *client)
 	input_unregister_device(wac_i2c->input_dev);
 	input_free_device(wac_i2c->input_dev);
 
+	wake_lock_destroy(&wac_i2c->wakelock);
+	wake_lock_destroy(&wac_i2c->wakelock_pen_insert);
+
 	kfree(wac_i2c);
 
 	return 0;
@@ -1395,6 +1424,7 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	i2c_set_clientdata(wac_i2c->client_boot, wac_i2c);
 
 	wake_lock_init(&wac_i2c->wakelock, WAKE_LOCK_SUSPEND, "wacom_wakelock");
+	wake_lock_init(&wac_i2c->wakelock_pen_insert, WAKE_LOCK_SUSPEND, "wacom_pen_wakelock");
 
 #ifdef WACOM_USE_PMLDO
 	reg_l18 = regulator_get(&client->dev, "vcc_en");
@@ -1641,6 +1671,7 @@ err_get_wacom_booster:
 #endif
 	kfree(wac_i2c->wac_query_data);
 	wake_lock_destroy(&wac_i2c->wakelock);
+	wake_lock_destroy(&wac_i2c->wakelock_pen_insert);
 //	input_free_device(input);
 err_freemem:
 	kfree(wac_i2c);

@@ -431,7 +431,7 @@ extern int usb_hcd_pci_probe(struct pci_dev *dev,
 extern void usb_hcd_pci_remove(struct pci_dev *dev);
 extern void usb_hcd_pci_shutdown(struct pci_dev *dev);
 
-#ifdef CONFIG_PM_SLEEP
+#ifdef CONFIG_PM
 extern const struct dev_pm_ops usb_hcd_pci_pm_ops;
 #endif
 #endif /* CONFIG_PCI */
@@ -616,10 +616,16 @@ extern int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg);
 
 #ifdef CONFIG_PM_RUNTIME
 extern void usb_hcd_resume_root_hub(struct usb_hcd *hcd);
+extern int usb_intf_with_pwr_usage_cnt(struct usb_hcd *hcd);
 #else
 static inline void usb_hcd_resume_root_hub(struct usb_hcd *hcd)
 {
 	return;
+}
+
+static inline int usb_intf_with_pwr_usage_cnt(struct usb_hcd *hcd)
+{
+	return -ENXIO;
 }
 #endif /* CONFIG_PM_RUNTIME */
 

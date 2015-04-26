@@ -1348,12 +1348,14 @@ enum cfg80211_signal_type {
  * @tsf: TSF contained in the frame that carried these IEs
  * @rcu_head: internal use, for freeing
  * @len: length of the IEs
+ * @from_beacon: these IEs are known to come from a beacon
  * @data: IE data
  */
 struct cfg80211_bss_ies {
 	u64 tsf;
 	struct rcu_head rcu_head;
 	int len;
+	bool from_beacon;
 	u8 data[];
 };
 
@@ -2076,6 +2078,10 @@ struct cfg80211_qos_map {
  *	reliability. This operation can not fail.
  *
  * @set_qos_map: Set QoS mapping information to the driver
+ *
+ * @set_ap_chanwidth: Set the AP (including P2P GO) mode channel width for the
+ *	given interface This is used e.g. for dynamic HT 20/40 MHz channel width
+ *	changes during the lifetime of the BSS.
  */
 struct cfg80211_ops {
 	int	(*suspend)(struct wiphy *wiphy, struct cfg80211_wowlan *wow);
@@ -2312,9 +2318,13 @@ struct cfg80211_ops {
 				    u16 duration);
 	void	(*crit_proto_stop)(struct wiphy *wiphy,
 				   struct wireless_dev *wdev);
+
 	int     (*set_qos_map)(struct wiphy *wiphy,
 			       struct net_device *dev,
 			       struct cfg80211_qos_map *qos_map);
+
+	int	(*set_ap_chanwidth)(struct wiphy *wiphy, struct net_device *dev,
+				    struct cfg80211_chan_def *chandef);
 };
 
 /*
@@ -2385,6 +2395,7 @@ struct cfg80211_ops {
  *	responds to probe-requests in hardware.
  * @WIPHY_FLAG_OFFCHAN_TX: Device supports direct off-channel TX.
  * @WIPHY_FLAG_HAS_REMAIN_ON_CHANNEL: Device supports remain-on-channel call.
+ * @WIPHY_FLAG_DFS_OFFLOAD: The driver handles all the DFS related operations.
  */
 enum wiphy_flags {
 	WIPHY_FLAG_CUSTOM_REGULATORY		= BIT(0),
@@ -2408,6 +2419,7 @@ enum wiphy_flags {
 	WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD	= BIT(19),
 	WIPHY_FLAG_OFFCHAN_TX			= BIT(20),
 	WIPHY_FLAG_HAS_REMAIN_ON_CHANNEL	= BIT(21),
+	WIPHY_FLAG_DFS_OFFLOAD                  = BIT(22)
 };
 
 /**
@@ -3803,8 +3815,8 @@ void __cfg80211_send_event_skb(struct sk_buff *skb, gfp_t gfp);
 static inline struct sk_buff *
 cfg80211_vendor_cmd_alloc_reply_skb(struct wiphy *wiphy, int approxlen)
 {
-	return __cfg80211_alloc_reply_skb(wiphy, NL80211_CMD_TESTMODE,
-					  NL80211_ATTR_TESTDATA, approxlen);
+	return __cfg80211_alloc_reply_skb(wiphy, NL80211_CMD_VENDOR,
+					  NL80211_ATTR_VENDOR_DATA, approxlen);
 }
 
 /**

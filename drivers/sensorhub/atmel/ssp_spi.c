@@ -48,6 +48,12 @@ static int do_transfer(struct ssp_data *data, struct ssp_msg *msg,
 		}
 	}
 
+	if (data->bSuspended) {
+		pr_err("[SSP]: %s - Sensorhub is suspended.!!\n", __func__);
+		mutex_unlock(&data->comm_mutex);
+		return -1;
+	}
+
 	status = spi_write(data->spi, msg, 9) >= 0;
 
 	if (status == 0) {
@@ -194,9 +200,13 @@ int select_irq_msg(struct ssp_data *data) {
 			if (msg->dead_hook != NULL)
 				*(msg->dead_hook) = true;
 
+			data->uListEmptyCnt = 0;
 			clean_msg(msg);
-		} else
-			pr_err("[SSP]List empty error(%d)\n", msg_type);
+		} else {
+			data->uListEmptyCnt++;
+			pr_err("[SSP]: %s - List empty error(%d) - %u\n",
+				__func__, msg_type, data->uListEmptyCnt);
+		}
 	exit:
 		mutex_unlock(&data->pending_mutex);
 		break;
@@ -428,15 +438,15 @@ int flush(struct ssp_data *data, u8 uSensorType) {
 	msg->buffer = &buffer;
 	msg->free_buffer = 0;
 
+	ssp_dbg("[SSP]: %s Sensor Type = 0x%x, data = %u\n", __func__,
+		uSensorType, buffer);
+
 	iRet = ssp_spi_sync(data, msg, 1000);
 
 	if (iRet != SUCCESS) {
 		pr_err("[SSP]: %s - fail %d\n", __func__, iRet);
 		return ERROR;
 	}
-
-	ssp_dbg("[SSP]: %s Sensor Type = 0x%x, data = %u\n", __func__, uSensorType,
-			buffer);
 
 	return buffer ? 0 : -1;
 }

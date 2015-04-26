@@ -180,6 +180,7 @@ struct mad_audio_cal {
 extern void wcd9xxx_clsh_fsm(struct snd_soc_codec *codec,
 		struct wcd9xxx_clsh_cdc_data *cdc_clsh_d,
 		u8 req_state, bool req_type, u8 clsh_event);
+
 extern void wcd9xxx_enable_high_perf_mode(struct snd_soc_codec *codec,
 				struct wcd9xxx_clsh_cdc_data *clsh_d,
 				u8 req_state, bool req_type);

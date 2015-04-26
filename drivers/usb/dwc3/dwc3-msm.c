@@ -47,6 +47,7 @@
 #include <linux/cdev.h>
 #include <linux/completion.h>
 #include <linux/clk/msm-clk.h>
+#include <linux/irq.h>
 #include <soc/qcom/scm.h>
 
 #include <mach/rpm-regulator.h>
@@ -199,6 +200,7 @@ struct dwc3_msm {
 #define MDWC3_PHY_REF_AND_CORECLK_OFF	BIT(0)
 #define MDWC3_TCXO_SHUTDOWN		BIT(1)
 
+	u32 gctl_val;
 	u32 qscratch_ctl_val;
 	dev_t ext_chg_dev;
 	struct cdev ext_chg_cdev;
@@ -1011,15 +1013,25 @@ static void dwc3_msm_qscratch_reg_init(struct dwc3_msm *mdwc)
 static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned event)
 {
 	struct dwc3_msm *mdwc = dev_get_drvdata(dwc->dev->parent);
+	u32 reg;
 
 	if (dwc->revision < DWC3_REVISION_230A)
 		return;
 
 	switch (event) {
 	case DWC3_CONTROLLER_ERROR_EVENT:
-		dev_info(mdwc->dev, "DWC3_CONTROLLER_ERROR_EVENT received\n");
+		dev_info(mdwc->dev,
+			"DWC3_CONTROLLER_ERROR_EVENT received, irq cnt %lu\n",
+			dwc->irq_cnt);
+
 		dwc3_msm_dump_phy_info(mdwc);
-		dwc3_msm_write_reg(mdwc->base, DWC3_DEVTEN, 0);
+		dwc3_gadget_disable_irq(dwc);
+
+		/* prevent core from generating interrupts until recovery */
+		reg = dwc3_msm_read_reg(mdwc->base, DWC3_GCTL);
+		reg |= DWC3_GCTL_CORESOFTRESET;
+		dwc3_msm_write_reg(mdwc->base, DWC3_GCTL, reg);
+
 		/*
 		 * schedule work for doing block reset for recovery from erratic
 		 * error event.
@@ -1041,6 +1053,13 @@ static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned event)
 		dwc->tx_fifo_size = mdwc->tx_fifo_size;
 		break;
 	case DWC3_CONTROLLER_POST_INITIALIZATION_EVENT:
+		/*
+		 * Workaround: Disable internal clock gating always, as there
+		 * is a known HW bug that causes the internal RAM clock to get
+		 * stuck when entering low power modes.
+		 */
+		dwc3_msm_write_reg_field(mdwc->base, DWC3_GCTL,
+					DWC3_GCTL_DSBLCLKGTNG, 1);
 		usb_phy_post_init(mdwc->ss_phy);
 	default:
 		dev_dbg(mdwc->dev, "unknown dwc3 event\n");
@@ -1087,29 +1106,18 @@ static void dwc3_block_reset_usb_work(struct work_struct *w)
 {
 	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm,
 						usb_block_reset_work);
-	u32 reg;
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
+	unsigned long flags;
 
 	dev_dbg(mdwc->dev, "%s\n", __func__);
-
 	dwc3_msm_block_reset(&mdwc->ext_xceiv, true);
-
-	reg = (DWC3_DEVTEN_EVNTOVERFLOWEN |
-			DWC3_DEVTEN_CMDCMPLTEN |
-			DWC3_DEVTEN_ERRTICERREN |
-			DWC3_DEVTEN_WKUPEVTEN |
-			DWC3_DEVTEN_CONNECTDONEEN |
-			DWC3_DEVTEN_USBRSTEN |
-			DWC3_DEVTEN_DISCONNEVTEN);
-	/*
-	 * Enable SUSPENDEVENT(BIT:6) for version 230A and above
-	 * else enable USB Link change event (BIT:3) for older version
-	 */
-	if (dwc3_msm_read_reg(mdwc->base, DWC3_GSNPSID) < DWC3_REVISION_230A)
-		reg |= DWC3_DEVTEN_ULSTCNGEN;
-	else if (mdwc->enable_suspend_event)
-		reg |= DWC3_DEVTEN_SUSPEND;
-
-	dwc3_msm_write_reg(mdwc->base, DWC3_DEVTEN, reg);
+	if (mdwc->ext_xceiv.bsv) {
+		dbg_event(0xFF, "Mask EVT", 0);
+		dwc3_gadget_enable_irq(dwc);
+	}
+	spin_lock_irqsave(&dwc->lock, flags);
+	dwc->err_evt_seen = 0;
+	spin_unlock_irqrestore(&dwc->lock, flags);
 }
 
 static void dwc3_chg_enable_secondary_det(struct dwc3_msm *mdwc)
@@ -1414,6 +1422,7 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 	bool host_bus_suspend;
 	bool host_ss_active;
 	bool can_suspend_ssphy;
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 
 	dev_dbg(mdwc->dev, "%s: entering lpm\n", __func__);
 	dbg_event(0xFF, "Controller Suspend", 0);
@@ -1468,9 +1477,14 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 	host_bus_suspend = (mdwc->scope == POWER_SUPPLY_SCOPE_SYSTEM);
 	can_suspend_ssphy = !(host_bus_suspend && host_ss_active);
 
+	/* Disable core irq */
+	if (dwc->irq)
+		disable_irq(dwc->irq);
+
 	if (!dcp && !host_bus_suspend)
 		dwc3_msm_write_reg(mdwc->base, QSCRATCH_CTRL_REG,
 			mdwc->qscratch_ctl_val);
+
 
 	if (host_bus_suspend) {
 		ret = dwc3_msm_prepare_suspend(mdwc);
@@ -1481,6 +1495,7 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 	}
 
 	usb_phy_set_suspend(mdwc->hs_phy, 1);
+
 	if (can_suspend_ssphy) {
 		usb_phy_set_suspend(mdwc->ss_phy, 1);
 		usleep_range(1000, 1200);
@@ -1489,6 +1504,9 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 
 	/* make sure above writes are completed before turning off clocks */
 	wmb();
+
+	/* Save value of GCTL to rewrite upon resume */
+	mdwc->gctl_val = dwc3_msm_read_reg(mdwc->base, DWC3_GCTL);
 
 	/* remove vote for controller power collapse */
 	if (!host_bus_suspend)
@@ -1537,6 +1555,7 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 	bool dcp;
 	bool host_bus_suspend;
 	bool resume_from_core_clk_off = false;
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 
 	dev_dbg(mdwc->dev, "%s: exiting lpm\n", __func__);
 	dbg_event(0xFF, "Controller Resume", 0);
@@ -1617,6 +1636,9 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 
 	if (resume_from_core_clk_off)
 		usb_phy_set_suspend(mdwc->ss_phy, 0);
+
+	dwc3_msm_write_reg(mdwc->base, DWC3_GCTL, mdwc->gctl_val);
+
 	atomic_set(&mdwc->in_lpm, 0);
 
 	/* Disable SSPHY auto suspend */
@@ -1646,6 +1668,10 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 
 	dev_info(mdwc->dev, "DWC3 exited from low power mode\n");
 
+	/* Enable core irq */
+	if (dwc->irq)
+		enable_irq(dwc->irq);
+
 	return 0;
 }
 
@@ -1673,6 +1699,43 @@ static void dwc3_wait_for_ext_chg_done(struct dwc3_msm *mdwc)
 
 }
 
+static void dwc3_flush_event_buffers(struct dwc3_msm *mdwc)
+{
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
+	int i;
+	unsigned long flags;
+
+	/* Only disable/flush all events when cable is disconnected */
+	if (mdwc->ext_xceiv.bsv)
+		return;
+
+	/* Disable all events on cable disconnect */
+	dbg_event(0xFF, "Dis EVT", 0);
+	dwc3_gadget_disable_irq(dwc);
+
+	/* Skip remaining events on disconnect */
+	spin_lock_irqsave(&dwc->lock, flags);
+	for (i = 0; i < dwc->num_event_buffers; i++) {
+		struct dwc3_event_buffer *evt;
+		evt = dwc->ev_buffs[i];
+		evt->lpos = (evt->lpos + evt->count) %
+			DWC3_EVENT_BUFFERS_SIZE;
+		evt->count = 0;
+	evt->flags &= ~DWC3_EVENT_PENDING;
+	}
+	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	/*
+	 * If there is a pending block reset due to erratic event,
+	 * wait for it to complete
+	 */
+	if (dwc->err_evt_seen) {
+		dbg_event(0xFF, "Flush BR", 0);
+		flush_work(&mdwc->usb_block_reset_work);
+		dwc->err_evt_seen = 0;
+	}
+ }
+
 static void dwc3_resume_work(struct work_struct *w)
 {
 	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm,
@@ -1684,6 +1747,8 @@ static void dwc3_resume_work(struct work_struct *w)
 		dev_dbg(mdwc->dev, "%s: notifying xceiv event\n", __func__);
 		if (mdwc->otg_xceiv) {
 			dwc3_wait_for_ext_chg_done(mdwc);
+			/* Handle erratic events during cable disconnect */
+			dwc3_flush_event_buffers(mdwc);
 			mdwc->ext_xceiv.notify_ext_events(mdwc->otg_xceiv->otg,
 							DWC3_EVENT_XCEIV_STATE);
 		}
@@ -1696,6 +1761,11 @@ static void dwc3_resume_work(struct work_struct *w)
 	} else {
 		pm_runtime_get_sync(mdwc->dev);
 		if (mdwc->otg_xceiv) {
+			/*
+			 * Handle erratic events during bus suspend and cable
+			 * disconnect
+			 */
+			dwc3_flush_event_buffers(mdwc);
 			mdwc->ext_xceiv.notify_ext_events(mdwc->otg_xceiv->otg,
 							DWC3_EVENT_PHY_RESUME);
 		} else if (mdwc->scope == POWER_SUPPLY_SCOPE_SYSTEM) {
@@ -1874,6 +1944,7 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 		if (mdwc->otg_xceiv && !mdwc->ext_inuse &&
 		    (mdwc->ext_xceiv.otg_capability || !init)) {
 			mdwc->ext_xceiv.bsv = val->intval;
+
 			/*
 			 * Set debouncing delay to 120ms. Otherwise battery
 			 * charging CDP complaince test fails if delay > 120ms.
@@ -2358,6 +2429,23 @@ unreg_chrdev:
 	return ret;
 }
 
+static int msm_dwc3_hsphy_autosuspend(struct usb_phy *x, struct device *dev,
+				int enable_autosuspend)
+{
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev->parent->parent);
+	u32 reg;
+
+	reg = dwc3_msm_read_reg(mdwc->base, DWC3_GUSB2PHYCFG(0));
+	if (enable_autosuspend)
+		reg |= DWC3_GUSB2PHYCFG_SUSPHY;
+	else
+		reg &= ~(DWC3_GUSB2PHYCFG_SUSPHY);
+
+	dwc3_msm_write_reg(mdwc->base, DWC3_GUSB2PHYCFG(0), reg);
+
+	return 0;
+}
+
 #include "dwc3-sec.c"
 static int dwc3_msm_probe(struct platform_device *pdev)
 {
@@ -2505,6 +2593,7 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		dev_dbg(&pdev->dev, "pget_irq for hs_phy_irq failed\n");
 		mdwc->hs_phy_irq = 0;
 	} else {
+		irq_set_status_flags(mdwc->hs_phy_irq, IRQ_NOAUTOEN);
 		ret = devm_request_irq(&pdev->dev, mdwc->hs_phy_irq,
 				msm_dwc3_irq, IRQF_TRIGGER_RISING,
 			       "msm_dwc3", mdwc);
@@ -2528,6 +2617,8 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 			} else if (ret == 0) {
 				mdwc->pmic_id_irq = 0;
 			} else {
+				irq_set_status_flags(mdwc->pmic_id_irq,
+						IRQ_NOAUTOEN);
 				ret = devm_request_irq(&pdev->dev,
 						       mdwc->pmic_id_irq,
 						       dwc3_pmic_id_irq,
@@ -2692,6 +2783,7 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		ret = PTR_ERR(mdwc->hs_phy);
 		goto put_dwc3;
 	}
+	mdwc->hs_phy->set_phy_autosuspend = msm_dwc3_hsphy_autosuspend;
 
 
 	mdwc->ss_phy = devm_usb_get_phy_by_phandle(&mdwc->dwc3->dev,
@@ -2783,8 +2875,10 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	pm_runtime_set_active(mdwc->dev);
 	pm_runtime_enable(mdwc->dev);
 
+	enable_irq(mdwc->hs_phy_irq);
 	/* Update initial ID state */
 	if (mdwc->pmic_id_irq) {
+		enable_irq(mdwc->pmic_id_irq);
 		local_irq_save(flags);
 		mdwc->id_state = !!irq_read_line(mdwc->pmic_id_irq);
 		if (mdwc->id_state == DWC3_ID_GROUND)
@@ -2854,13 +2948,27 @@ static int dwc3_msm_remove_children(struct device *dev, void *data)
 static int dwc3_msm_remove(struct platform_device *pdev)
 {
 	struct dwc3_msm	*mdwc = platform_get_drvdata(pdev);
+	int ret_pm;
 
 	if (cpu_to_affin)
 		unregister_cpu_notifier(&mdwc->dwc3_cpu_notifier);
 
-	pm_runtime_disable(mdwc->dev);
-	pm_runtime_set_suspended(mdwc->dev);
-	device_wakeup_disable(mdwc->dev);
+	/*
+	 * In case of system suspend, pm_runtime_get_sync fails.
+	 * Hence turn ON the clocks manually.
+	 */
+	ret_pm = pm_runtime_get_sync(mdwc->dev);
+	if (ret_pm < 0) {
+		dev_err(mdwc->dev,
+			"pm_runtime_get_sync failed with %d\n", ret_pm);
+		clk_prepare_enable(mdwc->utmi_clk);
+		clk_prepare_enable(mdwc->core_clk);
+		clk_prepare_enable(mdwc->iface_clk);
+		clk_prepare_enable(mdwc->sleep_clk);
+		clk_prepare_enable(mdwc->hsphy_sleep_clk);
+		clk_prepare_enable(mdwc->ref_clk);
+		clk_prepare_enable(mdwc->xo_clk);
+	}
 
 	if (mdwc->ext_chg_device) {
 		device_destroy(mdwc->ext_chg_class, mdwc->ext_chg_dev);
@@ -2882,6 +2990,12 @@ static int dwc3_msm_remove(struct platform_device *pdev)
 
 	platform_device_put(mdwc->dwc3);
 	device_for_each_child(&pdev->dev, NULL, dwc3_msm_remove_children);
+
+	pm_runtime_disable(mdwc->dev);
+	pm_runtime_barrier(mdwc->dev);
+	pm_runtime_put_sync(mdwc->dev);
+	pm_runtime_set_suspended(mdwc->dev);
+	device_wakeup_disable(mdwc->dev);
 
 	if (!IS_ERR_OR_NULL(mdwc->vbus_otg))
 		regulator_disable(mdwc->vbus_otg);
@@ -2926,6 +3040,7 @@ static int dwc3_msm_pm_resume(struct device *dev)
 {
 	int ret = 0;
 	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 
 	dev_dbg(dev, "dwc3-msm PM resume\n");
 
@@ -2941,12 +3056,20 @@ static int dwc3_msm_pm_resume(struct device *dev)
 
 		/* Let OTG know about resume event and update pm_count */
 		if (mdwc->otg_xceiv) {
+			/*
+			 * Handle erratic events on bus suspend, PM suspend
+			 * and cable disconnect
+			 */
+			dwc3_flush_event_buffers(mdwc);
 			mdwc->ext_xceiv.notify_ext_events(mdwc->otg_xceiv->otg,
 							DWC3_EVENT_PHY_RESUME);
 			if (mdwc->ext_xceiv.otg_capability)
 				mdwc->ext_xceiv.notify_ext_events(
 							mdwc->otg_xceiv->otg,
 							DWC3_EVENT_XCEIV_STATE);
+
+		} else if (mdwc->scope == POWER_SUPPLY_SCOPE_SYSTEM) {
+			pm_runtime_resume(&dwc->xhci->dev);
 		}
 	}
 

@@ -23,6 +23,7 @@
 #include <mach/msm_bus.h>
 #include <mach/msm_bus_board.h>
 #include <mach/ocmem.h>
+#include <linux/workqueue.h>
 #include <media/v4l2-dev.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -244,6 +245,7 @@ struct msm_vidc_core_capability {
 	struct hal_capability_supported scale_y;
 	struct hal_capability_supported hier_p;
 	struct hal_capability_supported mbs_per_frame;
+	struct hal_capability_supported ltr_count;
 	u32 capability_set;
 	enum buffer_mode_type buffer_mode[MAX_PORT_NUM];
 	u32 buffer_size_limit;
@@ -251,7 +253,7 @@ struct msm_vidc_core_capability {
 
 struct msm_vidc_core {
 	struct list_head list;
-	struct mutex sync_lock, lock;
+	struct mutex lock;
 	int id;
 	void *device;
 	struct msm_video_device vdev[MSM_VIDC_MAX_DEVICES];
@@ -264,6 +266,7 @@ struct msm_vidc_core {
 	struct msm_vidc_platform_resources resources;
 	u32 enc_codec_supported;
 	u32 dec_codec_supported;
+	struct delayed_work fw_unload_work;
 };
 
 struct msm_vidc_inst {
@@ -380,4 +383,5 @@ struct msm_smem *msm_smem_user_to_kernel(void *clt, int fd, u32 offset,
 				enum hal_buffer buffer_type);
 int msm_smem_get_domain_partition(void *clt, u32 flags, enum hal_buffer
 		buffer_type, int *domain_num, int *partition_num);
+void msm_vidc_fw_unload_handler(struct work_struct *work);
 #endif

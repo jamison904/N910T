@@ -306,6 +306,7 @@ static void hid_irq_in(struct urb *urb)
 			clear_bit(HID_KEYS_PRESSED, &usbhid->iofl);
 		break;
 	case -EPIPE:		/* stall */
+		hid_info(urb->dev, "usbhid: %s: stall\n", __func__);
 		usbhid_mark_busy(usbhid);
 		clear_bit(HID_IN_RUNNING, &usbhid->iofl);
 		set_bit(HID_CLEAR_HALT, &usbhid->iofl);
@@ -314,12 +315,14 @@ static void hid_irq_in(struct urb *urb)
 	case -ECONNRESET:	/* unlink */
 	case -ENOENT:
 	case -ESHUTDOWN:	/* unplug */
+		hid_info(urb->dev, "usbhid: %s: unlink %d\n", __func__, urb->status);
 		clear_bit(HID_IN_RUNNING, &usbhid->iofl);
 		return;
 	case -EILSEQ:		/* protocol error or unplug */
 	case -EPROTO:		/* protocol error or unplug */
 	case -ETIME:		/* protocol error or unplug */
 	case -ETIMEDOUT:	/* Should never happen, but... */
+		hid_info(urb->dev, "usbhid: %s: protocol error %d\n", __func__, urb->status);
 		usbhid_mark_busy(usbhid);
 		clear_bit(HID_IN_RUNNING, &usbhid->iofl);
 		hid_io_error(hid);
@@ -535,7 +538,6 @@ static void __usbhid_submit_report(struct hid_device *hid, struct hid_report *re
 {
 	int head;
 	struct usbhid_device *usbhid = hid->driver_data;
-	int len = ((report->size - 1) >> 3) + 1 + (report->id > 0);
 
 	if ((hid->quirks & HID_QUIRK_NOGET) && dir == USB_DIR_IN)
 		return;
@@ -546,7 +548,7 @@ static void __usbhid_submit_report(struct hid_device *hid, struct hid_report *re
 			return;
 		}
 
-		usbhid->out[usbhid->outhead].raw_report = kmalloc(len, GFP_ATOMIC);
+		usbhid->out[usbhid->outhead].raw_report = hid_alloc_report_buf(report, GFP_ATOMIC);
 		if (!usbhid->out[usbhid->outhead].raw_report) {
 			hid_warn(hid, "output queueing failed\n");
 			return;
@@ -595,7 +597,7 @@ static void __usbhid_submit_report(struct hid_device *hid, struct hid_report *re
 	}
 
 	if (dir == USB_DIR_OUT) {
-		usbhid->ctrl[usbhid->ctrlhead].raw_report = kmalloc(len, GFP_ATOMIC);
+		usbhid->ctrl[usbhid->ctrlhead].raw_report = hid_alloc_report_buf(report, GFP_ATOMIC);
 		if (!usbhid->ctrl[usbhid->ctrlhead].raw_report) {
 			hid_warn(hid, "control queueing failed\n");
 			return;

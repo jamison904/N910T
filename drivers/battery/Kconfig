@@ -10,7 +10,7 @@ config BATTERY_SAMSUNG
 config BATTERY_SAMSUNG_DATA_FILE
 	depends on BATTERY_SAMSUNG
 	string "samsung battery data file"
-	default ""
+	default "default_battery_data.h"
 	help
 	 Path to the battery data file.
 
@@ -131,6 +131,16 @@ config FUELGAUGE_MAX77843
 	 for MAXIM MAX17047 or MAX17050 fuel gauge driver.
 	 This fuel-gauge can be used in voltage-tracking mode
 	 or coulomb-counting mode.
+
+config FUELGAUGE_MAX77843_COULOMB_COUNTING
+	tristate "use MAX77843 fuel gauge as coulomb counting (including voltage tracking)"
+	default n
+	depends on FUELGAUGE_MAX77843
+	help
+	 Say Y to use MAX77843 fuel gauge
+	 as coulomb counting (including voltage tracking).
+	 This mode is for target that consumes high current
+	 like tablet.
 
 config FUELGAUGE_MAX77823_VOLTAGE_TRACKING
 	tristate "use MAX77823 fuel gauge only as voltage tracking"
@@ -302,6 +312,13 @@ config CHARGER_MAX77888
           flash driver.
           You have to define MFD_MAX77888
 
+config AFC_CHARGER_MODE
+	bool "afc charging support in sec battery driver"
+	default n
+	depends on CHARGER_MAX77843
+	help
+	  Say Y to include support for sec afc charging support
+
 config SAMSUNG_LPM_MODE
 	bool "Off charging mode support in sec battery driver"
 	default n
@@ -336,3 +353,9 @@ config SAMSUNG_BATTERY_DISALLOW_DEEP_SLEEP
 	help
 	  Say Y to include support
 	  Disallow deep sleep during charging for stablity.
+
+config EN_OOPS
+	bool "enable oops filter"
+	default n
+	help
+	  Say Y to enable oops filter

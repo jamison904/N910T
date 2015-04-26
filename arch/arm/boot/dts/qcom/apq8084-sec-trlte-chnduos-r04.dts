@@ -29,7 +29,6 @@
 
 #include "apq8084-sii8620-mhl3-trlte-r04.dtsi"
 #include "apq8084-sec-trlte-r04.dtsi"
-#include "dsi_panel_samsung_wqhd_dual_cmd_S6E3HA2X01.dtsi"
 #include "apq8084-sec-trlte-chn-battery-r04.dtsi"
 #include "apq8084-mif-trlte-chnduos-r00.dtsi"
 / {
@@ -94,22 +93,6 @@
 };
 
 &soc {
-	sound-9330 {
-		pinctrl-names = "pmx-quad-mi2s-sleep",
-				"pmx-quad-mi2s-active";
-		pinctrl-0 = <&quad_mi2s_sleep>;
-		pinctrl-1 = <&quad_mi2s_active>;
-	};
-
-	qcom,msm-dai-mi2s {
-		qcom,msm-dai-q6-mi2s-quat {
-			compatible = "qcom,msm-dai-q6-mi2s";
-			qcom,msm-dai-q6-mi2s-dev-id = <3>;
-			qcom,msm-mi2s-tx-lines = <1>;
-			qcom,msm-mi2s-rx-lines = <2>;
-		};
-	};
-
 	sound {
 		qcom,sec-auxpcm-gpio-din = <&msmgpio 84 0>;
 	};

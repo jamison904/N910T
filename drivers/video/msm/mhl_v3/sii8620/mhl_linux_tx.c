@@ -4495,6 +4495,7 @@ static ssize_t sii8620_connection_test_store(struct class *dev,
 		ret = kstrtoint(buf, 10, &status);
 		if (unlikely(ret < 0))
 			return size;
+		MHL_TX_DBG_ERR(": (%d)\n", status);
 		sii8620_detection_callback(status);
 	} else
 		MHL_TX_DBG_ERR(": MHL is not connected\n");

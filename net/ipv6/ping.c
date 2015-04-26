@@ -57,7 +57,8 @@ static struct inet_protosw pingv6_protosw = {
 
 
 /* Compatibility glue so we can support IPv6 when it's compiled as a module */
-int dummy_ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len)
+int dummy_ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len,
+			  int *addr_len)
 {
 	return -EAFNOSUPPORT;
 }
@@ -158,8 +159,10 @@ int ping_v6_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	fl6.flowi6_proto = IPPROTO_ICMPV6;
 	fl6.saddr = np->saddr;
 	fl6.daddr = *daddr;
+	fl6.flowi6_mark = sk->sk_mark;
 	fl6.fl6_icmp_type = user_icmph.icmp6_type;
 	fl6.fl6_icmp_code = user_icmph.icmp6_code;
+	fl6.flowi6_uid = sock_i_uid(sk);
 	security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
 
 	if (!fl6.flowi6_oif && ipv6_addr_is_multicast(&fl6.daddr))

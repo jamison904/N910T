@@ -1128,9 +1128,11 @@ static int test_init_queue(struct request_queue *q, struct elevator_type *e)
 	if (!ptd) {
 		kobject_put(&eq->kobj);
 		pr_err("%s: failed to allocate test data", __func__);
+		kobject_put(&eq->kobj);
 		return -ENOMEM;
 	}
 	eq->elevator_data = ptd;
+
 	memset((void *)ptd, 0, sizeof(struct test_data));
 	INIT_LIST_HEAD(&ptd->queue);
 	INIT_LIST_HEAD(&ptd->test_queue);

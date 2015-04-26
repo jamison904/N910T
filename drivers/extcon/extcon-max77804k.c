@@ -1233,6 +1233,10 @@ static int max77804k_muic_handle_attach(struct max77804k_muic_info *info,
 			new_state |= BIT(EXTCON_SMARTDOCK_USB);
 		}
 		break;
+#elif !defined(CONFIG_MUIC_SUPPORT_SMART_DOCK) && defined(CONFIG_MUIC_SUPPORT_WATERRESISTANCE)
+	case ADC_SMARTDOCK:
+		dev_info(info->dev, "%s:Detected Acc. but working nothing.(%x)\n", __func__, adc);
+		break;
 #endif
 #if defined(CONFIG_MUIC_MAX77804K_SUPPORT_HMT_DETECTION)
 	case ADC_HMT:
@@ -1281,10 +1285,18 @@ static int max77804k_muic_handle_attach(struct max77804k_muic_info *info,
 		if (vbvolt)
 			new_state |= BIT(EXTCON_DESKDOCK_VB);
 		break;
+#elif !defined(CONFIG_MUIC_SUPPORT_DESK_DOCK) && defined(CONFIG_MUIC_SUPPORT_WATERRESISTANCE)
+	case ADC_DESKDOCK:
+		dev_info(info->dev, "%s:Detected Acc. but working nothing.(%x)\n", __func__, adc);
+		break;
 #endif
 #if defined(CONFIG_MUIC_SUPPORT_AUDIO_DOCK)
 	case ADC_AUDIODOCK:
 		new_state = BIT(EXTCON_AUDIODOCK);
+		break;
+#elif !defined(CONFIG_MUIC_SUPPORT_AUDIO_DOCK) && defined(CONFIG_MUIC_SUPPORT_WATERRESISTANCE)
+	case ADC_AUDIODOCK:
+		dev_info(info->dev, "%s:Detected Acc. but working nothing.(%x)\n", __func__, adc);
 		break;
 #endif
 	case ADC_LANHUB:

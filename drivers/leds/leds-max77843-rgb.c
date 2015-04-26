@@ -104,6 +104,7 @@ enum max77843_led_pattern {
 };
 
 static struct device *led_dev;
+struct device *max77843led_dev;
 
 struct max77843_rgb {
 	struct led_classdev led[4];
@@ -112,10 +113,12 @@ struct max77843_rgb {
 	unsigned int delay_off_times_ms;
 };
 
+extern int get_lcd_id(void);
+static unsigned int lcdtype_color;
 #if defined (CONFIG_SEC_FACTORY)
 #if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
 static int jig_val;
-extern int get_lcd_attached(void);
+extern int get_lcd_attached(char*);
 
 static int __init muic_get_jig_status(char *mode)
 {
@@ -176,6 +179,8 @@ static void max77843_rgb_set(struct led_classdev *led_cdev,
 			return;
 		}
 	} else {
+		if(n == BLUE && (lcdtype_color != 0x51));
+			brightness = (brightness*5)/2;
 		/* Set current */
 		ret = max77843_write_reg(max77843_rgb->i2c,
 				MAX77843_LED_REG_LED0BRT + n, brightness);
@@ -371,6 +376,13 @@ static void max77843_rgb_reset(struct device *dev)
 	max77843_rgb_ramp(dev, 0, 0);
 }
 
+void max77843_rgb_off(void)
+{
+	pr_info("leds-max77843-rgb: all leds off\n");
+	max77843_rgb_reset(max77843led_dev);
+}
+EXPORT_SYMBOL(max77843_rgb_off);
+
 static ssize_t store_max77843_rgb_lowpower(struct device *dev,
 					struct device_attribute *devattr,
 					const char *buf, size_t count)
@@ -387,8 +399,12 @@ static ssize_t store_max77843_rgb_lowpower(struct device *dev,
 	led_lowpower_mode = led_lowpower;
 	if (led_lowpower_mode == 1)
 		led_dynamic_current = BASE_LOW_POWER_CURRENT;
-	else
-		led_dynamic_current = BASE_DYNAMIC_LED_CURRENT;
+	else {
+		if(lcdtype_color == 0x51)	//PANEL - GOLD, PINK
+			led_dynamic_current = 0x5A;
+		else
+			led_dynamic_current = BASE_DYNAMIC_LED_CURRENT;
+	}
 	pr_info("led_lowpower mode set to %i, led_dynamic_current set to %d\n", led_lowpower, led_dynamic_current);
 	dev_dbg(dev, "led_lowpower mode set to %i\n", led_lowpower);
 
@@ -454,10 +470,7 @@ static ssize_t store_max77843_rgb_pattern(struct device *dev,
 		break;
 	case MISSED_NOTI:
 		max77843_rgb_blink(dev, 500, 5000);
-		if(led_lowpower_mode == 1)
-			max77843_rgb_set_state(&max77843_rgb->led[BLUE], 0x0a, LED_BLINK);
-		else
-			max77843_rgb_set_state(&max77843_rgb->led[BLUE], 0x32, LED_BLINK);
+			max77843_rgb_set_state(&max77843_rgb->led[BLUE], led_dynamic_current, LED_BLINK);
 		break;
 	case LOW_BATTERY:
 		max77843_rgb_blink(dev, 500, 5000);
@@ -469,11 +482,7 @@ static ssize_t store_max77843_rgb_pattern(struct device *dev,
 	case POWERING:
 		max77843_rgb_ramp(dev, 800, 800);
 		max77843_rgb_blink(dev, 200, 200);
-		if(led_lowpower_mode == 1)
-			max77843_rgb_set_state(&max77843_rgb->led[BLUE], 0x0a, LED_ALWAYS_ON);
-		else
-			max77843_rgb_set_state(&max77843_rgb->led[BLUE], 0x32, LED_ALWAYS_ON);
-
+		max77843_rgb_set_state(&max77843_rgb->led[BLUE], led_dynamic_current, LED_ALWAYS_ON);
 		max77843_rgb_set_state(&max77843_rgb->led[GREEN], led_dynamic_current, LED_BLINK);
 		break;
 	default:
@@ -513,10 +522,7 @@ static ssize_t store_max77843_rgb_blink(struct device *dev,
 	/* In user case, LED current is restricted to less than 2mA */
 	led_r_brightness = (led_r_brightness * led_dynamic_current) / LED_MAX_CURRENT;
 	led_g_brightness = (led_g_brightness * led_dynamic_current) / LED_MAX_CURRENT;
-	if(led_lowpower_mode == 1)
-		led_b_brightness = (led_b_brightness * 0x0a) / LED_MAX_CURRENT;
-	else
-		led_b_brightness = (led_b_brightness * 0x32) / LED_MAX_CURRENT;
+	led_b_brightness = (led_b_brightness * led_dynamic_current) / LED_MAX_CURRENT;
 
 	if (led_r_brightness) {
 		max77843_rgb_set_state(&max77843_rgb->led[RED], led_r_brightness, LED_BLINK);
@@ -820,14 +826,19 @@ static int max77843_rgb_probe(struct platform_device *pdev)
 
 #if defined (CONFIG_SEC_FACTORY)
 #if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
-	if ( (jig_val == 0) && (get_lcd_attached() == 0) ) {
+	if ( (jig_val == 0) && (get_lcd_attached("GET") == 0) ) {
 		pr_info("%s:Factory MODE - No OCTA, Battery BOOTING\n", __func__);
-		max77843_rgb_set_state(&max77843_rgb->led[RED], BASE_DYNAMIC_LED_CURRENT, LED_ALWAYS_ON);
+		max77843_rgb_set_state(&max77843_rgb->led[RED], led_dynamic_current, LED_ALWAYS_ON);
 	}
 
 #endif
 #endif
+	max77843led_dev = dev;
 
+	lcdtype_color = (get_lcd_id() >> 16);
+	pr_info("leds-max77843-rgb: get_lcd_id is %d, lcdtype is %d done\n", get_lcd_id(), lcdtype_color);
+	if(lcdtype_color == 0x51)	//PANEL - GOLD, PINK
+		led_dynamic_current = 0x5A;
 	pr_info("leds-max77843-rgb: %s done\n", __func__);
 
 	return 0;

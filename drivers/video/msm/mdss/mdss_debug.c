@@ -431,7 +431,6 @@ static int mdss_debugfs_cleanup(struct mdss_debug_data *mdd)
 
 static int mdss_debugfs_perf_init(struct mdss_debug_data *mdd,
 			struct mdss_data_type *mdata) {
-
 	debugfs_create_u32("min_mdp_clk", 0644, mdd->perf,
 		(u32 *)&mdata->perf_tune.min_mdp_clk);
 
@@ -443,6 +442,12 @@ static int mdss_debugfs_perf_init(struct mdss_debug_data *mdd,
 
 	debugfs_create_bool("enable_rotator_bw_release", 0644, mdd->perf,
 		(u32 *)&mdata->enable_rotator_bw_release);
+
+	debugfs_create_u64("min_uhd_bus_vote", 0644, mdd->perf,
+		(u64 *)&mdata->perf_tune.min_uhd_bus_vote);
+
+	debugfs_create_u64("min_qhd_bus_vote", 0644, mdd->perf,
+		(u64 *)&mdata->perf_tune.min_qhd_bus_vote);
 
 	debugfs_create_file("ab_factor", 0644, mdd->perf,
 		&mdata->ab_factor, &mdss_factor_fops);
@@ -540,7 +545,11 @@ void mdss_dump_reg(char __iomem *base, int len)
 		x4 = readl_relaxed(addr+0x4);
 		x8 = readl_relaxed(addr+0x8);
 		xc = readl_relaxed(addr+0xc);
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+		pr_err("%04x : %08x %08x %08x %08x\n", i * 16, x0, x4, x8, xc);
+#else
 		pr_info("%p : %08x %08x %08x %08x\n", addr, x0, x4, x8, xc);
+#endif
 		addr += 16;
 	}
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);

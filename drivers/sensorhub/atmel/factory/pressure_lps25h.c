@@ -76,7 +76,7 @@ int pressure_open_calibration(struct ssp_data *data)
 
 	iErr = kstrtoint(chBuf, 10, &data->iPressureCal);
 	if (iErr < 0) {
-		pr_err("[SSP]: %s - kstrtoint failed. %d", __func__, iErr);
+		pr_err("[SSP]: %s - kstrtoint failed. %d\n", __func__, iErr);
 		return iErr;
 	}
 

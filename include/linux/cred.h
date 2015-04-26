@@ -139,11 +139,12 @@ struct cred {
 #ifdef CONFIG_TIMA_RKP_RO_CRED
 	struct task_struct *bp_task;
 	void *bp_pgd;
-	int exec_depth;
+	int type;
 #endif /*CONFIG_TIMA_RKP_RO_CRED*/
 };
 #ifdef CONFIG_TIMA_RKP_RO_CRED
 extern atomic_t cred_usage[];
+#define override_creds(x) rkp_override_creds(&x)
 #endif /*CONFIG_TIMA_RKP_RO_CRED*/
 
 extern void __put_cred(struct cred *);
@@ -155,7 +156,11 @@ extern struct cred *prepare_creds(void);
 extern struct cred *prepare_exec_creds(void);
 extern int commit_creds(struct cred *);
 extern void abort_creds(struct cred *);
+#ifndef CONFIG_TIMA_RKP_RO_CRED
 extern const struct cred *override_creds(const struct cred *);
+#else
+extern const struct cred *rkp_override_creds(struct cred **);
+#endif /*CONFIG_TIMA_RKP_RO_CRED*/
 extern void revert_creds(const struct cred *);
 extern struct cred *prepare_kernel_cred(struct task_struct *);
 extern int change_create_files_as(struct cred *, struct inode *);

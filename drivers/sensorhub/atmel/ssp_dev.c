@@ -73,6 +73,10 @@ void ssp_enable(struct ssp_data *data, bool enable)
 static irqreturn_t sensordata_irq_thread_fn(int iIrq, void *dev_id)
 {
 	struct ssp_data *data = dev_id;
+	struct timespec ts;
+
+	ts = ktime_to_timespec(ktime_get_boottime());
+	data->timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 
 #if defined SSP_IRQ_EDGE_PROTECT
 	if (prevent_irq != 0) {
@@ -81,11 +85,10 @@ static irqreturn_t sensordata_irq_thread_fn(int iIrq, void *dev_id)
 #if SSP_STATUS_MONITOR
 		data->uSubIrqCnt++;
 #endif
-	} else {
+	} else
 		pr_err("[SSP] %s, irq Occured while Boot.\n", __func__);
-	}
 #else
-	if(gpio_get_value(data->mcu_int1)) {
+	if (gpio_get_value(data->mcu_int1)) {
 		pr_info("[SSP] MCU int HIGH");
 		return IRQ_HANDLED;
 	}
@@ -112,6 +115,8 @@ static void initialize_variable(struct ssp_data *data)
 		data->batchLatencyBuf[iSensorIndex] = 0;
 		data->batchOptBuf[iSensorIndex] = 0;
 		data->aiCheckStatus[iSensorIndex] = INITIALIZATION_STATE;
+		data->lastTimestamp[iSensorIndex] = 0;
+		data->reportedData[iSensorIndex] = false;
 	}
 
 	atomic_set(&data->aSensorEnable, 0);
@@ -122,6 +127,7 @@ static void initialize_variable(struct ssp_data *data)
 
 	data->uResetCnt = 0;
 	data->uTimeOutCnt = 0;
+	data->uListEmptyCnt = 0;
 	data->uComFailCnt = 0;
 	data->uIrqCnt = 0;
 #if SSP_STATUS_MONITOR
@@ -134,6 +140,7 @@ static void initialize_variable(struct ssp_data *data)
 	data->bBarcodeEnabled = false;
 	data->bAccelAlert = false;
 	data->bTimeSyncing = true;
+	data->bSuspended = false;
 #if SSP_STATUS_MONITOR
 	data->bRefreshing = false;
 #endif
@@ -342,6 +349,17 @@ static int ssp_parse_dt(struct device *dev,
 	pr_info("[SSP] hi-thresh[%u] low-thresh[%u]\n",
 		data->uProxHiThresh_default, data->uProxLoThresh_default);
 
+	if (of_property_read_u32(np, "ssp,prox-cal_hi_thresh",
+			&data->uProxHiThresh_cal))
+		data->uProxHiThresh_cal = DEFUALT_CAL_HIGH_THRESHOLD;
+
+	if (of_property_read_u32(np, "ssp,prox-cal_LOW_thresh",
+			&data->uProxLoThresh_cal))
+		data->uProxLoThresh_cal = DEFUALT_CAL_LOW_THRESHOLD;
+
+	pr_info("[SSP] cal-hi[%u] cal-low[%u]\n",
+		data->uProxHiThresh_cal, data->uProxLoThresh_cal);
+
 #if SSP_STATUS_MONITOR
 	data->reg_hub = devm_regulator_get(dev, "hub_vreg");
 	if (IS_ERR(data->reg_hub)) {
@@ -358,6 +376,20 @@ static int ssp_parse_dt(struct device *dev,
 	}
 #endif
 
+#if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
+	data->reg_hub = devm_regulator_get(dev, "8084_lvs1");
+	if (IS_ERR(data->reg_hub)) {
+		pr_err("[SSP]: could not get 8084_lvs1, %ld\n",
+			PTR_ERR(data->reg_hub));
+		data->reg_hub = 0;
+	} else {
+		errorno = regulator_enable(data->reg_hub);
+		if (errorno) {
+			pr_err("[SSP]: Failed to enable 8084_lvs1 regulators:"
+				" %d\n", errorno);
+		}
+	}
+#endif
 	errorno = gpio_request(data->mcu_int1, "mcu_ap_int1");
 	if (errorno) {
 		pr_err("[SSP] failed to request MCU_INT1 for SSP\n");
@@ -678,6 +710,7 @@ static int ssp_suspend(struct device *dev)
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_SUSPEND, 0))
 		pr_err("[SSP]: %s MSG2SSP_AP_STATUS_SUSPEND failed\n",
 			__func__);
+	data->bSuspended = true;
 	data->bTimeSyncing = false;
 	disable_irq(data->iIrq);
 	return 0;
@@ -690,6 +723,7 @@ static int ssp_resume(struct device *dev)
 	enable_irq(data->iIrq);
 	func_dbg();
 	enable_debug_timer(data);
+	data->bSuspended = false;
 
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_RESUME, 0))
 		pr_err("[SSP]: %s MSG2SSP_AP_STATUS_RESUME failed\n",

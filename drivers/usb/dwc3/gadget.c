@@ -332,7 +332,8 @@ void dwc3_gadget_giveback(struct dwc3_ep *dep, struct dwc3_request *req,
 
 	dbg_done(dep->number, req->request.actual, req->request.status);
 	spin_unlock(&dwc->lock);
-	req->request.complete(&dep->endpoint, &req->request);
+	if(req->request.complete)
+		req->request.complete(&dep->endpoint, &req->request);
 	spin_lock(&dwc->lock);
 }
 
@@ -1761,7 +1762,7 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	return ret;
 }
 
-static void dwc3_gadget_enable_irq(struct dwc3 *dwc)
+void dwc3_gadget_enable_irq(struct dwc3 *dwc)
 {
 	u32			reg;
 
@@ -1786,7 +1787,7 @@ static void dwc3_gadget_enable_irq(struct dwc3 *dwc)
 	dwc3_writel(dwc->regs, DWC3_DEVTEN, reg);
 }
 
-static void dwc3_gadget_disable_irq(struct dwc3 *dwc)
+void dwc3_gadget_disable_irq(struct dwc3 *dwc)
 {
 	/* mask all interrupts */
 	dwc3_writel(dwc->regs, DWC3_DEVTEN, 0x00);
@@ -2932,8 +2933,6 @@ static void dwc3_dump_reg_info(struct dwc3 *dwc)
 	dbg_print_reg("OCTL", dwc3_readl(dwc->regs, DWC3_OCTL));
 	dbg_print_reg("OEVT", dwc3_readl(dwc->regs, DWC3_OEVT));
 	dbg_print_reg("OSTS", dwc3_readl(dwc->regs, DWC3_OSTS));
-
-	dwc3_notify_event(dwc, DWC3_CONTROLLER_ERROR_EVENT);
 }
 #endif
 
@@ -3081,6 +3080,21 @@ static irqreturn_t dwc3_thread_interrupt(int irq, void *_dwc)
 
 			dwc3_process_event_entry(dwc, &event);
 
+			if (dwc->err_evt_seen) {
+				/*
+				 * if erratic error, skip remaining events
+				 * while controller undergoes reset
+				 */
+				evt->lpos = (evt->lpos + left) %
+						DWC3_EVENT_BUFFERS_SIZE;
+				dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(i),
+						left);
+				if (dwc3_notify_event(dwc,
+						DWC3_CONTROLLER_ERROR_EVENT))
+					dwc->err_evt_seen = 0;
+				break;
+			}
+
 			/*
 			 * FIXME we wrap around correctly to the next entry as
 			 * almost all entries are 4 bytes in size. There is one
@@ -3105,6 +3119,9 @@ static irqreturn_t dwc3_thread_interrupt(int irq, void *_dwc)
 		evt->count = 0;
 		evt->flags &= ~DWC3_EVENT_PENDING;
 		ret = IRQ_HANDLED;
+
+		if (dwc->err_evt_seen)
+			break;
 	}
 
 	spin_unlock_irqrestore(&dwc->lock, flags);
@@ -3153,6 +3170,14 @@ static irqreturn_t dwc3_interrupt(int irq, void *_dwc)
 	irqreturn_t			ret = IRQ_NONE;
 
 	spin_lock(&dwc->lock);
+
+	dwc->irq_cnt++;
+
+	if (dwc->err_evt_seen) {
+		/* controller reset is still pending */
+		spin_unlock(&dwc->lock);
+		return IRQ_HANDLED;
+	}
 
 	for (i = 0; i < dwc->num_event_buffers; i++) {
 		irqreturn_t status;

@@ -2626,7 +2626,7 @@ static int smb1357_charger_parse_dt(struct smb1357_charger_data *smb1357data)
 {
 	struct device_node *np = of_find_node_by_name(NULL, DT_NODE_NAME);
 	struct sec_charger_info *charger = smb1357data->charger;
-	sec_battery_platform_data_t *pdata = charger->pdata;
+	sec_charger_platform_data_t *pdata = charger->pdata;
 	int ret = 0;
 	int i, len;
 	const u32 *p;
@@ -3196,7 +3196,7 @@ static int smb1357_charger_probe(
 	charger->client = client;
 
 	if (client->dev.of_node) {
-		void * pdata = kzalloc(sizeof(sec_battery_platform_data_t), GFP_KERNEL);
+		void * pdata = kzalloc(sizeof(sec_charger_platform_data_t), GFP_KERNEL);
 		if (!pdata)
 			goto err_free1;
 		charger->pdata = pdata;

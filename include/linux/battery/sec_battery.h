@@ -32,15 +32,6 @@
 #include <linux/jiffies.h>
 #include <linux/of_gpio.h>
 
-#if defined(CONFIG_BATTERY_SWELLING)
-#define BATT_SWELLING_HIGH_TEMP_BLOCK		500
-#define BATT_SWELLING_HIGH_TEMP_RECOV		450
-#define BATT_SWELLING_LOW_TEMP_BLOCK		100
-#define BATT_SWELLING_LOW_TEMP_RECOV		150
-#define BATT_SWELLING_RECHG_VOLTAGE		4150
-#define BATT_SWELLING_BLOCK_TIME	10 * 60 /* 10 min */
-
-#endif
 #if defined(CONFIG_EXTCON)
 #include <linux/extcon.h>
 struct sec_battery_extcon_cable{
@@ -54,8 +45,6 @@ struct sec_battery_extcon_cable{
 #define ADC_SAMPLE_COUNT	10
 
 #define TEMP_HIGHLIMIT_DEFAULT	2000
-#define TEMP_HIGHLIMIT_THRESHOLD	800
-#define TEMP_HIGHLIMIT_RECOVERY	700
 
 struct adc_sample_info {
 	unsigned int cnt;
@@ -127,6 +116,8 @@ struct sec_battery_info {
 	unsigned int check_adc_count;
 	unsigned int check_adc_value;
 
+	/* health change check */
+	bool health_change;
 	/* time check */
 	unsigned long charging_start_time;
 	unsigned long charging_passed_time;
@@ -262,6 +253,7 @@ enum {
 	FG_REG_DUMP,
 	FG_RESET_CAP,
 	FG_CAPACITY,
+	FG_ASOC,
 	AUTH,
 	CHG_CURRENT_ADC,
 	WC_ADC,
@@ -298,6 +290,7 @@ enum {
 	BATT_TEST_CHARGE_CURRENT,
 #endif
 	BATT_STABILITY_TEST,
+	BATT_INBAT_VOLTAGE,
 };
 
 #ifdef CONFIG_OF

@@ -33,18 +33,9 @@
 	};
 };
 
-&soc {
-	mdss_dsi0: qcom,mdss_dsi@fd922800 {
-		iovdd-supply = <&pma8084_l26>;
-		qcom,dsi-pref-prim-pan-dual = <&dsi_dual_samsung_cmd_S6E3HA2X01_0>;
-	};
+#include "../../../../drivers/video/msm/mdss/samsung/S6E3HA2_AMS567DJ01/dsi_panel_S6E3HA2_AMS567DJ01_wqhd_octa_cmd.dtsi"
 
-	mdss_dsi1: qcom,mdss_dsi@fd922e00 {
-		iovdd-supply = <&pma8084_l26>;
-		qcom,dsi-pref-prim-pan-dual = <&dsi_dual_samsung_cmd_S6E3HA2X01_1>;
-	};
-
-	qcom,mdss_mdp@fd900000 {
+&mdss_mdp {
 		qcom,mdss-pref-prim-intf = "dsi";
 
 		mdss_fb0: qcom,mdss_fb_primary {
@@ -54,6 +45,28 @@
 		};
 	};
 
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&ss_dsi_panel_S6E3HA2_AMS567DJ01_WQHD_0>;
+	qcom,platform-te-gpio = <&msmgpio 12 0>;
+
+	/*qcom,dsi-panel-bias-vreg;*/
+	qcom,platform-enable-gpio = <&pma8084_gpios 6 0>;
+	qcom,platform-reset-gpio = <&pma8084_gpios 21 0>;
+
+	iovdd-supply = <&pma8084_l26>;
+};
+
+&mdss_dsi1 {
+	qcom,dsi-pref-prim-pan = <&ss_dsi_panel_S6E3HA2_AMS567DJ01_WQHD_1>;
+
+	/*qcom,dsi-panel-bias-vreg;*/
+	qcom,platform-enable-gpio = <&pma8084_gpios 6 0>;
+	qcom,platform-reset-gpio = <&pma8084_gpios 21 0>;
+
+	iovdd-supply = <&pma8084_l26>;
+};
+
+&soc {
 	qcom,hdmi_tx@fd922100 {
 		status = "ok";
 	};
@@ -307,6 +320,8 @@
 			ssp,mag-position = <0>;
 			ssp,prox-hi_thresh = <130>;
 			ssp,prox-low_thresh = <90>;
+			ssp,prox-cal_hi_thresh = <120>;
+			ssp,prox-cal_low_thresh = <55>;
 			ssp,ap-rev=<5>;
 		};
 	};
@@ -580,6 +595,7 @@
 };
 
 &i2c_2 {
+	status = "disabled";
 	isa1200@48 {
 		/delete-property/ imagis,is-erm;
 		imagis,need-pwm-clk;

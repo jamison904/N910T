@@ -23,8 +23,10 @@
 		qcom,enable-gpio = <&pma8084_gpios 6 0>;
 		qcom,rst-gpio = <&pma8084_gpios 21 0>;
 		qcom,te-gpio = <&msmgpio 12 0>;
-		qcom,esd-irq-gpio = <&pma8084_gpios 5 0x1>;
+		qcom,fg-err-gpio = <&pma8084_gpios 13 0x1>;
+		qcom,oled-det-gpio = <&pma8084_gpios 5 0x1>;
 
+		qcom,cmd-sync-wait-broadcast;
 		qcom,cont-splash-enabled;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
@@ -93,8 +95,13 @@
 				29 01 00 00 00 00 07 BD 11 11 02 16 02 16  /*TSP TE*/
 				29 01 00 00 00 00 05 C0 00 00 D8 D8	/* Pentile setting */
 				29 01 00 00 00 00 04 C3 C0 00 33 /* POC setting */
+				29 01 00 00 00 00 02 B0 20
+				29 01 00 00 00 00 02 FE 08
 				29 01 00 00 00 00 03 CC 40 51		/* PCD OFF */
 				29 01 00 00 00 00 02 ED 44			/* ERR_FG setting */
+				29 01 00 00 00 00 02 B0 03
+				29 01 00 00 00 00 02 E7 67
+				29 01 00 00 00 00 02 ED 01
 
 				29 01 00 00 00 00 24				/* Brightness condition set */
 					CA
@@ -624,21 +631,26 @@
 **************************************************************************************************************************/
 
 		samsung,panel-alpm-on-seq = [
+				29 01 00 00 00 00 03 F0 5A 5A 		/* TEST KEY Enable */
 				05 01 00 00 14 00 02 28 00			/* display off wait 20ms */
 
 				29 01 00 00 14 00 02 53 23			/* alpm on wait 20ms */
 
-/*				29 01 00 00 00 00 02 29 00*/		/* display on */
+				29 01 00 00 01 00 02 F7 03		/* Gamma, LTPS(AID) update */
+				29 01 00 00 00 00 02 F7 00
+				29 01 00 00 00 00 03 F0 A5 A5
 			];
 
 		samsung,panel-alpm-off-seq = [
+				29 01 00 00 00 00 03 F0 5A 5A 		/* TEST KEY Disable */
 				05 01 00 00 14 00 02 28 00			/* display off wait 20ms */
 
 				/* image write for normal mode */
 
-				29 01 00 00 00 00 02 53 00			/* alpm off */
-
-/*				29 01 00 00 00 00 02 29 00*/		/* display on */
+				29 01 00 00 14 00 02 53 00			/* alpm off */
+				29 01 00 00 01 00 02 F7 03		/* Gamma, LTPS(AID) update */
+				29 01 00 00 00 00 02 F7 00
+				29 01 00 00 00 00 03 F0 A5 A5
 			];
 	};
 
@@ -654,8 +666,11 @@
 		qcom,enable-gpio = <&pma8084_gpios 6 0>;
 		qcom,rst-gpio = <&pma8084_gpios 21 0>;
 		qcom,te-gpio = <&msmgpio 12 0>;
-		qcom,esd-irq-gpio = <&pma8084_gpios 5 0x1>;
+		qcom,fg-err-gpio = <&pma8084_gpios 13 0x1>;
+		qcom,oled-det-gpio = <&pma8084_gpios 5 0x1>;
 
+		qcom,cmd-sync-wait-broadcast;
+		qcom,cmd-sync-wait-trigger; /*SYNC UP WITH DSI1*/
 		qcom,cont-splash-enabled;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
@@ -724,8 +739,14 @@
 				29 01 00 00 00 00 07 BD 11 11 02 16 02 16  /*TSP TE*/
 				29 01 00 00 00 00 05 C0 00 00 D8 D8	/* Pentile setting */
 				29 01 00 00 00 00 04 C3 C0 00 33 /* POC setting */
+				29 01 00 00 00 00 02 B0 20
+				29 01 00 00 00 00 02 FE 08
 				29 01 00 00 00 00 03 CC 40 51		/* PCD OFF */
 				29 01 00 00 00 00 02 ED 44			/* ERR_FG setting */
+				29 01 00 00 00 00 02 B0 03
+				29 01 00 00 00 00 02 E7 67
+				29 01 00 00 00 00 02 ED 01
+
 
 				29 01 00 00 00 00 24				/* Brightness condition set */
 					CA
@@ -1322,21 +1343,26 @@
 **************************************************************************************************************************/
 
 		samsung,panel-alpm-on-seq = [
+				29 01 00 00 00 00 03 F0 5A 5A 		/* TEST KEY Enable */
 				05 01 00 00 14 00 02 28 00			/* display off wait 20ms */
 
 				29 01 00 00 14 00 02 53 23			/* alpm on wait 20ms */
 
-/*				29 01 00 00 00 00 02 29 00*/		/* display on */
+				29 01 00 00 01 00 02 F7 03		/* Gamma, LTPS(AID) update */
+				29 01 00 00 00 00 02 F7 00
+				29 01 00 00 00 00 03 F0 A5 A5
 			];
 
 		samsung,panel-alpm-off-seq = [
+				29 01 00 00 00 00 03 F0 5A 5A 		/* TEST KEY Disable */
 				05 01 00 00 14 00 02 28 00			/* display off wait 20ms */
 
 				/* image write for normal mode */
 
-				29 01 00 00 00 00 02 53 00			/* alpm off */
-
-/*				29 01 00 00 00 00 02 29 00*/		/* display on */
+				29 01 00 00 14 00 02 53 00			/* alpm off */
+				29 01 00 00 01 00 02 F7 03		/* Gamma, LTPS(AID) update */
+				29 01 00 00 00 00 02 F7 00
+				29 01 00 00 00 00 03 F0 A5 A5
 			];
 
 			/* HMT */

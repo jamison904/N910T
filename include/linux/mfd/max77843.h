@@ -128,12 +128,8 @@ struct max77843_platform_data {
 	/* led (flash/torch) data */
 	struct max77843_led_platform_data *led_data;
 #endif
-#if defined(CONFIG_CHARGER_MAX77843)
-	sec_battery_platform_data_t *charger_data;
-#endif
-#if defined(CONFIG_FUELGAUGE_MAX77843)
-	sec_battery_platform_data_t *fuelgauge_data;
-#endif
+	sec_charger_platform_data_t *charger_data;
+	sec_fuelgauge_platform_data_t *fuelgauge_data;
 };
 
 enum cable_type_muic;

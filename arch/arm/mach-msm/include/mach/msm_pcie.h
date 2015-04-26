@@ -25,7 +25,8 @@ enum msm_pcie_config {
 
 enum msm_pcie_pm_opt {
 	MSM_PCIE_SUSPEND,
-	MSM_PCIE_RESUME
+	MSM_PCIE_RESUME,
+	MSM_PCIE_REQ_EXIT_L1,
 };
 
 enum msm_pcie_event {
@@ -119,6 +120,17 @@ int msm_pcie_recover_config(struct pci_dev *dev);
  */
 int msm_pcie_shadow_control(struct pci_dev *dev, bool enable);
 
+/*
+ * msm_pcie_access_control - access control to PCIe address range.
+ * @dev:	pci device structure
+ * @enable:	enable or disable the access
+ *
+ * This function gives PCIe endpoint device drivers the control to enable
+ * or disable the access to PCIe address range.
+ *
+ * Return: 0 on success, negative value on error
+ */
+int msm_pcie_access_control(struct pci_dev *dev, bool enable);
 #if defined(CONFIG_BCM4354) || defined(CONFIG_BCM4354_MODULE) || \
 	defined(CONFIG_BCM4358) || defined(CONFIG_BCM4358_MODULE)
 int msm_pcie_status_notify(int val);

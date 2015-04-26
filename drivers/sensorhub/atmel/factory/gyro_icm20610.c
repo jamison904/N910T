@@ -36,6 +36,7 @@
 #define DEF_SCALE_FOR_FLOAT		(1000)
 #define DEF_RMS_SCALE_FOR_RMS		(10000)
 #define DEF_SQRT_SCALE_FOR_RMS		(100)
+#define GYRO_LIB_DL_FAIL	9990
 
 static ssize_t gyro_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -288,7 +289,7 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 	char chTempBuf[36] = { 0,};
 	u8 initialized = 0;
 	s8 hw_result = 0;
-	int i = 0, j = 0, total_count = 0, ret_val = 0;
+	int i = 0, j = 0, total_count = 0, ret_val = 0, gyro_lib_dl_fail = 0;
 	long avg[3] = {0,}, rms[3] = {0,};
 	int gyro_bias[3] = {0,}, gyro_rms[3] = {0,};
 	s16 shift_ratio[3] = {0,};
@@ -316,7 +317,7 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 	}
 
 	data->uTimeOutCnt = 0;
-	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d", chTempBuf[0], chTempBuf[1],
+	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d\n", chTempBuf[0], chTempBuf[1],
 		chTempBuf[2], chTempBuf[3], chTempBuf[4], chTempBuf[5], chTempBuf[6],
 		chTempBuf[7], chTempBuf[8], chTempBuf[9], chTempBuf[10], chTempBuf[11]);
 
@@ -371,10 +372,16 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 	if (hw_result < 0) {
 		pr_err("[SSP] %s - hw selftest fail(%d), sw selftest skip\n",
 			__func__, hw_result);
-		return sprintf(buf, "-1,0,0,0,0,0,0,%d.%d,%d.%d,%d.%d,0,0,0\n",
-			shift_ratio[0] / 10, shift_ratio[0] % 10,
-			shift_ratio[1] / 10, shift_ratio[1] % 10,
-			shift_ratio[2] / 10, shift_ratio[2] % 10);
+		if (shift_ratio[0] == GYRO_LIB_DL_FAIL &&
+			shift_ratio[1] == GYRO_LIB_DL_FAIL &&
+			shift_ratio[2] == GYRO_LIB_DL_FAIL) {
+			pr_err("[SSP] %s - gyro lib download fail\n", __func__);
+			gyro_lib_dl_fail = 1;
+		} else
+			return sprintf(buf, "-1,0,0,0,0,0,0,%d.%d,%d.%d,%d.%d,0,0,0\n",
+				shift_ratio[0] / 10, shift_ratio[0] % 10,
+				shift_ratio[1] / 10, shift_ratio[1] % 10,
+				shift_ratio[2] / 10, shift_ratio[2] % 10);
 	}
 	gyro_bias[0] = (avg[0] * DEF_SCALE_FOR_FLOAT) / DEF_GYRO_SENS;
 	gyro_bias[1] = (avg[1] * DEF_SCALE_FOR_FLOAT) / DEF_GYRO_SENS;
@@ -449,6 +456,12 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 		(int)abs(gyro_rms[1]) % DEF_SCALE_FOR_FLOAT,
 		(int)abs(gyro_rms[2]) / DEF_SCALE_FOR_FLOAT,
 		(int)abs(gyro_rms[2]) % DEF_SCALE_FOR_FLOAT);
+
+	if (gyro_lib_dl_fail) {
+		pr_err("[SSP] gyro_lib_dl_fail, Don't save cal data\n");
+		ret_val = -1;
+		goto exit;
+	}
 
 	if (likely(!ret_val)) {
 		save_gyro_caldata(data, iCalData);

@@ -41,8 +41,8 @@ enum max77823_regulators {
 };
 
 struct max77823_platform_data {
-	sec_battery_platform_data_t *charger_data;
-	sec_battery_platform_data_t *fuelgauge_data;
+	sec_charger_platform_data_t *charger_data;
+	sec_fuelgauge_platform_data_t *fuelgauge_data;
 
 	int irq_base;
 	int irq_gpio;

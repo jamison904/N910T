@@ -23,15 +23,16 @@
 #include <linux/pm_runtime.h>
 #include <linux/slimbus/slimbus.h>
 #include <soc/qcom/subsystem_notif.h>
+#include <soc/qcom/apq8084_dock.h>
 #include <sound/core.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
 #include <sound/jack.h>
 #include <sound/q6afe-v2.h>
+#include <sound/q6core.h>
 #include <sound/pcm_params.h>
 #include "qdsp6v2/msm-pcm-routing-v2.h"
-#include "qdsp6v2/q6core.h"
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9320.h"
 #include "../codecs/wcd9330.h"
@@ -50,9 +51,14 @@ static int mi2s_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 
 #define SAMPLING_RATE_8KHZ 8000
 #define SAMPLING_RATE_16KHZ 16000
+#define SAMPLING_RATE_32KHZ   32000
+#define SAMPLING_RATE_44DOT1KHZ 44100
 #define SAMPLING_RATE_48KHZ 48000
 #define SAMPLING_RATE_96KHZ 96000
+#define SAMPLING_RATE_128KHZ   128000
+#define SAMPLING_RATE_176DOT4KHZ  176400
 #define SAMPLING_RATE_192KHZ 192000
+
 
 static int apq8084_auxpcm_rate = 8000;
 #define LO_1_SPK_AMP	0x1
@@ -98,32 +104,6 @@ static int sub_mic_delay = 0;
 
 #define ADSP_STATE_READY_TIMEOUT_MS 3000
 
-struct cpe_load_priv {
-	void *cdc_handle;
-	struct kobject *cpe_load_kobj;
-	struct attribute_group *attr_group;
-};
-
-static int cpe_load;
-
-static ssize_t cpe_load_store(struct kobject *kobj,
-	struct kobj_attribute *attr,
-	const char *buf,
-	size_t count);
-
-static struct kobj_attribute cpe_load_attr =
-	__ATTR(cpe_load, 0600, NULL, cpe_load_store);
-
-static struct attribute *attrs[] = {
-	&cpe_load_attr.attr,
-	NULL,
-};
-
-static struct attribute_group attr_grp = {
-	.attrs = attrs,
-};
-
-static struct cpe_load_priv cpe_priv;
 #ifdef CONFIG_CODEC_EAR_BIAS
 static struct mutex jack_mutex;
 static struct snd_soc_jack hs_jack;
@@ -477,29 +457,20 @@ static void apq8084_liquid_ext_spk_power_amp_enable(u32 on)
 			on ? "Enable" : "Disable");
 }
 
-static void apq8084_liquid_docking_irq_work(struct work_struct *work)
+static void apq8084_liquid_route_aud_dock_dev(void)
 {
-	struct apq8084_liquid_dock_dev *dock_dev =
-		container_of(work, struct apq8084_liquid_dock_dev, irq_work);
+	struct apq8084_liquid_dock_dev *dock_dev = apq8084_liquid_dock_dev;
 	struct snd_soc_dapm_context *dapm = dock_dev->dapm;
 
 	mutex_lock(&dapm->codec->mutex);
-	dock_dev->dock_plug_det =
-		gpio_get_value(dock_dev->dock_plug_gpio);
 
-	if (0 == dock_dev->dock_plug_det) {
-		if ((apq8084_ext_spk_pamp & LO_1_SPK_AMP) &&
-			(apq8084_ext_spk_pamp & LO_3_SPK_AMP) &&
-			(apq8084_ext_spk_pamp & LO_2_SPK_AMP) &&
-			(apq8084_ext_spk_pamp & LO_4_SPK_AMP))
-			apq8084_liquid_ext_spk_power_amp_enable(1);
-	} else {
-		if ((apq8084_ext_spk_pamp & LO_1_SPK_AMP) &&
-			(apq8084_ext_spk_pamp & LO_3_SPK_AMP) &&
-			(apq8084_ext_spk_pamp & LO_2_SPK_AMP) &&
-			(apq8084_ext_spk_pamp & LO_4_SPK_AMP))
-			apq8084_liquid_ext_spk_power_amp_enable(0);
-	}
+	/* Turn off external amp to turn off liquid spkr */
+	if ((apq8084_ext_spk_pamp & LO_1_SPK_AMP) &&
+		(apq8084_ext_spk_pamp & LO_3_SPK_AMP) &&
+		(apq8084_ext_spk_pamp & LO_2_SPK_AMP) &&
+		(apq8084_ext_spk_pamp & LO_4_SPK_AMP))
+		apq8084_liquid_ext_spk_power_amp_enable(0);
+
 	mutex_unlock(&dapm->codec->mutex);
 }
 
@@ -512,14 +483,68 @@ static irqreturn_t apq8084_liquid_docking_irq_handler(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+static int apq8084_liquid_dock_notify_handler(struct notifier_block *this,
+					unsigned long dock_event,
+					void *unused)
+{
+	int err = 0;
+
+	/* plug in docking speaker+plug in device OR unplug one of them */
+	u32 dock_plug_irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
+					IRQF_SHARED;
+
+	if (dock_event) {
+		err = gpio_request(apq8084_liquid_dock_dev->dock_plug_gpio,
+					   "dock-plug-det-irq");
+		if (err) {
+			pr_err("%s: fail request dock-plug-det-irq err = %d\n",
+				__func__, err);
+			goto exit;
+		}
+
+		apq8084_liquid_dock_dev->dock_plug_det =
+			gpio_get_value(apq8084_liquid_dock_dev->dock_plug_gpio);
+		if (apq8084_liquid_dock_dev->dock_plug_det)
+			apq8084_liquid_route_aud_dock_dev();
+		apq8084_liquid_dock_dev->dock_plug_irq =
+			gpio_to_irq(apq8084_liquid_dock_dev->dock_plug_gpio);
+
+
+		err = request_irq(apq8084_liquid_dock_dev->dock_plug_irq,
+				  apq8084_liquid_docking_irq_handler,
+				  dock_plug_irq_flags,
+				  "liquid_dock_plug_irq",
+				  apq8084_liquid_dock_dev);
+		if (err < 0) {
+			pr_err("%s: Request Irq Failed err = %d\n",
+				__func__, err);
+			goto out;
+		}
+	} else {
+		if (apq8084_liquid_dock_dev->dock_plug_gpio)
+			gpio_free(apq8084_liquid_dock_dev->dock_plug_gpio);
+
+		if (apq8084_liquid_dock_dev->dock_plug_irq)
+			free_irq(apq8084_liquid_dock_dev->dock_plug_irq,
+				 apq8084_liquid_dock_dev);
+	}
+	return NOTIFY_OK;
+
+out:
+	gpio_free(apq8084_liquid_dock_dev->dock_plug_gpio);
+exit:
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block apq8084_liquid_docking_notifier = {
+	.notifier_call  = apq8084_liquid_dock_notify_handler,
+};
+
 static int apq8084_liquid_init_docking(struct snd_soc_dapm_context *dapm)
 {
 	int ret = 0;
 	int dock_plug_gpio = 0;
 
-	/* plug in docking speaker+plug in device OR unplug one of them */
-	u32 dock_plug_irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
-					IRQF_SHARED;
 	dock_plug_gpio = of_get_named_gpio(spdev->dev.of_node,
 					   "qcom,dock-plug-det-irq", 0);
 
@@ -533,45 +558,10 @@ static int apq8084_liquid_init_docking(struct snd_soc_dapm_context *dapm)
 		}
 
 		apq8084_liquid_dock_dev->dock_plug_gpio = dock_plug_gpio;
-
-		ret = gpio_request(apq8084_liquid_dock_dev->dock_plug_gpio,
-					   "dock-plug-det-irq");
-		if (ret) {
-			pr_err("%s:failed request apq8084_liquid_dock_plug_gpio.\n",
-				__func__);
-			ret = -EINVAL;
-			goto out;
-		}
-
-		apq8084_liquid_dock_dev->dock_plug_det =
-			gpio_get_value(apq8084_liquid_dock_dev->dock_plug_gpio);
-		apq8084_liquid_dock_dev->dock_plug_irq =
-			gpio_to_irq(apq8084_liquid_dock_dev->dock_plug_gpio);
-
 		apq8084_liquid_dock_dev->dapm = dapm;
 
-		INIT_WORK(
-			&apq8084_liquid_dock_dev->irq_work,
-			apq8084_liquid_docking_irq_work);
-
-		ret = request_irq(apq8084_liquid_dock_dev->dock_plug_irq,
-				  apq8084_liquid_docking_irq_handler,
-				  dock_plug_irq_flags,
-				  "liquid_dock_plug_irq",
-				  apq8084_liquid_dock_dev);
-		if (ret < 0) {
-			pr_err("%s: Request Irq Failed err = %d\n",
-				__func__, ret);
-			goto out2;
-		}
+		register_liquid_dock_notify(&apq8084_liquid_docking_notifier);
 	}
-	return 0;
-
-out2:
-	gpio_free(apq8084_liquid_dock_dev->dock_plug_gpio);
-out:
-	kfree(apq8084_liquid_dock_dev);
-	apq8084_liquid_dock_dev = NULL;
 exit:
 	return ret;
 }
@@ -1195,7 +1185,7 @@ static int hdmi_rx_sample_rate_get(struct snd_kcontrol *kcontrol,
 	}
 	ucontrol->value.integer.value[0] = sample_rate_val;
 	pr_debug("%s: hdmi_rx_sample_rate = %d\n", __func__,
-				hdmi_rx_sample_rate);
+		  hdmi_rx_sample_rate);
 	return 0;
 }
 
@@ -1203,7 +1193,7 @@ static int hdmi_rx_sample_rate_put(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
 	pr_debug("%s: ucontrol value = %ld\n", __func__,
-			ucontrol->value.integer.value[0]);
+		 ucontrol->value.integer.value[0]);
 	switch (ucontrol->value.integer.value[0]) {
 	case 2:
 		hdmi_rx_sample_rate = SAMPLING_RATE_192KHZ;
@@ -2260,44 +2250,6 @@ static int msm_snd_get_ext_clk_cnt(void)
 	return clk_users;
 }
 
-static int apq8084_tomtom_cpe_enable(struct snd_soc_codec *codec)
-{
-	int ret = 0;
-
-	ret = tomtom_enable_cpe(codec);
-	if (IS_ERR_VALUE(ret))
-		pr_err("%s: CPE enable failed, err (0x%x)\n",
-			__func__, ret);
-	return ret;
-}
-
-static ssize_t cpe_load_store(struct kobject *kobj,
-	struct kobj_attribute *attr,
-	const char *buf,
-	size_t count)
-{
-	int ret = 0;
-
-	if (cpe_load) {
-		pr_err("%s: CPE already loaded\n",
-			__func__);
-		return count;
-	}
-
-	sscanf(buf, "%du", &cpe_load);
-
-	if (cpe_load) {
-		ret = apq8084_tomtom_cpe_enable(cpe_priv.cdc_handle);
-		if (IS_ERR_VALUE(ret))
-			cpe_load = 0;
-		else
-			pr_info("%s: CPE enabled for tomtom_codec\n",
-				__func__);
-	}
-
-	return count;
-}
-
 static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 {
 	int err;
@@ -2495,17 +2447,19 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		tomtom_register_ext_clk_cb(msm_snd_enable_codec_ext_clk,
 					   msm_snd_get_ext_clk_cnt,
 					   rtd->codec);
-		cpe_priv.cdc_handle = codec;
-		cpe_priv.attr_group = &attr_grp;
-		cpe_priv.cpe_load_kobj = kobject_create_and_add("snd_apq8084",
-						       kernel_kobj);
-		if (!cpe_priv.cpe_load_kobj) {
-			pr_err("%s: cpe_load: sysfs create_add failed\n",
-				__func__);
-		} else if (sysfs_create_group(cpe_priv.cpe_load_kobj,
-					      cpe_priv.attr_group)) {
-			pr_err("%s: sysfs_create_group failed\n", __func__);
-			kobject_del(cpe_priv.cpe_load_kobj);
+
+		err = msm_snd_enable_codec_ext_clk(rtd->codec, 1, false);
+		if (IS_ERR_VALUE(err)) {
+			pr_err("%s: Failed to enable mclk, err = 0x%x\n",
+				__func__, err);
+			goto out;
+		}
+		tomtom_enable_qfuse_sensing(rtd->codec);
+		err = msm_snd_enable_codec_ext_clk(rtd->codec, 0, false);
+		if (IS_ERR_VALUE(err)) {
+			pr_err("%s: Failed to disable mclk, err = 0x%x\n",
+				__func__, err);
+			goto out;
 		}
 	} else
 		taiko_event_register(apq8084_codec_event_cb, rtd->codec);
@@ -3183,8 +3137,8 @@ static struct snd_soc_dai_link apq8084_common_dai_links[] = {
 		.ignore_suspend = 1,
 	},
 	{
-		.name = "APQ8084 Compr",
-		.stream_name = "COMPR",
+		.name = "APQ8084 Compress1",
+		.stream_name = "Compress1",
 		.cpu_dai_name	= "MultiMedia4",
 		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
@@ -3315,25 +3269,8 @@ static struct snd_soc_dai_link apq8084_common_dai_links[] = {
 	},
 	/* Multiple Tunnel instances */
 	{
-		.name = "APQ8084 Compr2",
-		.stream_name = "COMPR2",
-		.cpu_dai_name	= "MultiMedia6",
-		.platform_name  = "msm-compress-dsp",
-		.dynamic = 1,
-		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE
-			| ASYNC_DPCM_SND_SOC_HW_PARAMS,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			 SND_SOC_DPCM_TRIGGER_POST},
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.codec_name = "snd-soc-dummy",
-		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1,
-		 /* this dai link has playback support */
-		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA6,
-	},
-	{
-		.name = "APQ8084 Compr3",
-		.stream_name = "COMPR3",
+		.name = "APQ8084 Compress2",
+		.stream_name = "Compress2",
 		.cpu_dai_name	= "MultiMedia7",
 		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
@@ -3347,6 +3284,23 @@ static struct snd_soc_dai_link apq8084_common_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		 /* this dai link has playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA7,
+	},
+	{
+		.name = "APQ8084 Compress3",
+		.stream_name = "Compress3",
+		.cpu_dai_name	= "MultiMedia10",
+		.platform_name  = "msm-compress-dsp",
+		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE
+			| ASYNC_DPCM_SND_SOC_HW_PARAMS,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			 SND_SOC_DPCM_TRIGGER_POST},
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		 /* this dai link has playback support */
+		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA10,
 	},
 	{
 		.name = "APQ8084 Compr8",
@@ -3624,6 +3578,21 @@ static struct snd_soc_dai_link apq8084_common_dai_links[] = {
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA10,
 	},
 #endif
+	{
+		.name = "VoWLAN",
+		.stream_name = "VoWLAN",
+		.cpu_dai_name   = "VoWLAN",
+		.platform_name  = "msm-pcm-voice",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.ignore_suspend = 1,
+		/* this dainlink has playback support */
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.be_id = MSM_FRONTEND_DAI_VOWLAN,
+	},
 };
 
 static struct snd_soc_dai_link apq8084_tomtom_fe_dai_links[] = {
@@ -4846,14 +4815,8 @@ static int apq8084_asoc_machine_remove(struct platform_device *pdev)
 	if (gpio_is_valid(ext_spk_amp_gpio))
 		gpio_free(ext_spk_amp_gpio);
 
+	unregister_liquid_dock_notify(&apq8084_liquid_docking_notifier);
 	if (apq8084_liquid_dock_dev != NULL) {
-		if (apq8084_liquid_dock_dev->dock_plug_gpio)
-			gpio_free(apq8084_liquid_dock_dev->dock_plug_gpio);
-
-		if (apq8084_liquid_dock_dev->dock_plug_irq)
-			free_irq(apq8084_liquid_dock_dev->dock_plug_irq,
-				 apq8084_liquid_dock_dev);
-
 		kfree(apq8084_liquid_dock_dev);
 		apq8084_liquid_dock_dev = NULL;
 	}

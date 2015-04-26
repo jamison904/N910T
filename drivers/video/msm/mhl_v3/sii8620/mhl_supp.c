@@ -2627,8 +2627,9 @@ void si_mhl_tx_msc_command_done(struct mhl_dev_context *dev_context,
 #endif
 		}
 
-		MHL_TX_DBG_ERR("DEVCAP->MHL_VER = %02x\n",
-			       dev_context->peer_mhl3_version);
+                MHL_TX_DBG_ERR("DEVCAP->MHL_VER = %02x, reserved = %02x\n",
+                                dev_context->peer_mhl3_version,
+                                dev_context->dev_cap_cache.mdc.reserved);
 		/*
 		 *  Generate a change mask between the old and new devcaps
 		 */

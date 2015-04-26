@@ -128,7 +128,7 @@ struct max77828_platform_data {
 	struct max77828_led_platform_data *led_data;
 #endif
 #if defined(CONFIG_CHARGER_MAX77828)
-	sec_battery_platform_data_t *charger_data;
+	sec_charger_platform_data_t *charger_data;
 #endif
 };
 

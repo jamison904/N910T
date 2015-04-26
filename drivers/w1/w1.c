@@ -530,22 +530,13 @@ static ssize_t w1_master_attribute_show_verify_mac(struct device *dev, struct de
 	int result = -1;
 #if defined(CONFIG_SEC_FACTORY) && defined(CONFIG_W1_SLAVE_DS28EL35)
 	struct w1_master *md = dev_to_w1_master(dev);
-	struct list_head *ent, *n;
-	struct w1_slave *sl = NULL;
 
+	pr_info("%s: TEST LOG\n", __func__);
 	mutex_lock(&md->mutex);
-	list_for_each_safe(ent, n, &md->slist) {
-		sl = list_entry(ent, struct w1_slave, w1_slave_entry);
-	}
-
-	if (sl)
-		result = w1_ds28el35_verifyecdsa(sl);
-	else
-		pr_info("%s: sysfs call fail\n", __func__);
+	w1_master_search();
 	mutex_unlock(&md->mutex);
-#else
-	result = verification;
 #endif
+	result = verification;
 
 	return sprintf(buf, "%d\n", result);
 }

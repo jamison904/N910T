@@ -150,4 +150,11 @@ config MUIC_SUPPORT_RUSTPROOF
 	 This option will disable the UART to prevent the rusting of the
 	 IF Connector in the case of Devices.
 
+config MUIC_SUPPORT_WATERRESISTANCE
+	bool "Feature for WATER Resistance mode"
+	default n
+	help
+	 This option will disable the UART to prevent the rusting of the
+	 IF Connector in the case of Devices.
+
 endif # MULTISTATE_SWITCH

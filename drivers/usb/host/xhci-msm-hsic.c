@@ -137,16 +137,16 @@ struct mxhci_hsic_hcd {
 };
 
 #define SYNOPSIS_DWC3_VENDOR	0x5533
-struct mxhci_hsic_hcd *__mxhci;
-static struct dbg_data dbg_hsic = {
+
+struct dbg_data dbg_hsic = {
 	.ctrl_idx = 0,
 	.ctrl_lck = __RW_LOCK_UNLOCKED(clck),
 	.data_idx = 0,
 	.data_lck = __RW_LOCK_UNLOCKED(dlck),
 	.log_payload = 1,
 	.log_events = 1,
-	.inep_log_mask = 0xff,
-	.outep_log_mask = 0xff
+	.inep_log_mask = 1,
+	.outep_log_mask = 1
 };
 
 static inline void dbg_inc(unsigned *idx)
@@ -838,14 +838,13 @@ static int mxhci_hsic_suspend(struct mxhci_hsic_hcd *mxhci)
 	}
 
 	disable_irq(hcd->irq);
-
 	if (mxhci->bh.state) {
-		xhci_dbg_log_event(&dbg_hsic, NULL, "skip SUSPEND tasklet state",
+		xhci_dbg_log_event(&dbg_hsic, NULL,
+			"skip SUSPEND tasklet state",
 			mxhci->bh.state);
 		enable_irq(hcd->irq);
 		return -EBUSY;
 	}
-
 	disable_irq(mxhci->pwr_event_irq);
 
 	/* make sure we don't race against a remote wakeup */
@@ -1202,15 +1201,15 @@ static void mxhci_irq_bh(unsigned long param)
 	dma_addr_t deq;
 	unsigned long flags;
 	unsigned event_cnt = 0;
-	int schedule_again = 0;
+	int schedule_again;
 
 	spin_lock_irqsave(&xhci->lock, flags);
 	event_ring_deq = xhci->event_ring->dequeue;
 
-	while (event_cnt < max_event_to_handle) {
+	do {
 		schedule_again = xhci_handle_event(xhci);
 		event_cnt++;
-	}
+	} while (schedule_again && (event_cnt < max_event_to_handle));
 
 	/* check if we have more events to process */
 	er = xhci->event_ring;
@@ -1629,8 +1628,6 @@ static int mxhci_hsic_probe(struct platform_device *pdev)
 	ret = mxhci_hsic_debugfs_init();
 	if (ret)
 		dev_dbg(&pdev->dev, "debugfs is not availabile\n");
-
-	__mxhci = mxhci;
 	return 0;
 
 delete_wq:
@@ -1685,6 +1682,9 @@ static int mxhci_hsic_remove(struct platform_device *pdev)
 	pm_runtime_set_suspended(&pdev->dev);
 
 	tasklet_kill(&mxhci->bh);
+
+	pm_runtime_disable(&hcd->self.root_hub->dev);
+	pm_runtime_barrier(&hcd->self.root_hub->dev);
 
 	usb_remove_hcd(xhci->shared_hcd);
 	usb_put_hcd(xhci->shared_hcd);
@@ -1801,12 +1801,37 @@ static int mxhci_hsic_pm_resume(struct device *dev)
 
 	return 0;
 }
+
+static int mxhci_hsic_suspend_late(struct device *dev)
+{
+	struct usb_hcd *hcd = dev_get_drvdata(dev);
+	struct mxhci_hsic_hcd *mxhci = hcd_to_hsic(hcd);
+	int ret;
+
+	dev_dbg(dev, "xhci-msm PM suspend_late\n");
+
+	ret = usb_intf_with_pwr_usage_cnt(hcd);
+	if (ret >= 0) {
+		dev_dbg(dev, "Aborting mxhci_hsic_suspend_late\n");
+		xhci_dbg_log_event(&dbg_hsic, NULL, "intf with usage cnt: ",
+			ret);
+		spin_lock(&mxhci->wakeup_lock);
+		if (!mxhci->pm_usage_cnt) {
+			pm_runtime_get(mxhci->dev);
+			mxhci->pm_usage_cnt = 1;
+		}
+		spin_unlock(&mxhci->wakeup_lock);
+		return -EBUSY;
+	}
+	return 0;
+}
 #endif
 
 static const struct dev_pm_ops xhci_msm_hsic_dev_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(mxhci_hsic_pm_suspend, mxhci_hsic_pm_resume)
 	SET_RUNTIME_PM_OPS(mxhci_hsic_runtime_suspend,
 			mxhci_hsic_runtime_resume, mxhci_hsic_runtime_idle)
+	.suspend_late = mxhci_hsic_suspend_late,
 };
 
 static const struct of_device_id of_mxhci_hsic_matach[] = {

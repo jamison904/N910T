@@ -368,7 +368,7 @@ static void max778xx_haptic_power_onoff(int onoff)
 
 	if (!reg_ldo) {
 		reg_ldo = regulator_get(NULL, "8084_l19");
-		ret = regulator_set_voltage(reg_ldo, 3000000, 3000000);
+		ret = regulator_set_voltage(reg_ldo, VIB_LDO_VOLTAGE, VIB_LDO_VOLTAGE);
 		if (IS_ERR(reg_ldo)) {
 			printk(KERN_ERR"could not get 8084_ldo, rc = %ld\n",
 				PTR_ERR(reg_ldo));

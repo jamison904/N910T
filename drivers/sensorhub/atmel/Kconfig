@@ -76,7 +76,7 @@ config SWI2C_MAX86902
 	default n
 	help
 	  This option enables the max86902 using software I2C.
-
+	  
 config SENSOR_SSP_PROXIMTY_FOR_WINDOW_TYPE
 	tristate "PROXIMITY THRESHOLD FOR WINDOW_TYPE"
 	default n
@@ -100,6 +100,51 @@ config SENSORS_SSP_ENG
 	help
 	  ssp sensor hub check binary mode
 	  If you say yes here you enable this routine.
+
+config SENSORS_SX9306
+	depends on I2C
+	tristate "SX9306 driver"
+	default n
+	help
+	  Say Y here if you use sx9306.
+	  This option enables grip sensors using
+	  SemTech sx9306 device driver.
+
+	  Say N here if you do not use sx9306.
+
+config SENSORS_SX9306_INIT_TOUCH_THRESHOLD
+	int "SX9306 Grip sensor threshold for init touch"
+	depends on SENSORS_SX9306
+	default "3000"
+	help
+	  This value is the standard of init touch using
+	  SemTech sx9306 device driver.
+
+config SENSORS_SX9306_NORMAL_TOUCH_THRESHOLD
+	int "SX9306 Grip sensor threshold for normal touch"
+	depends on SENSORS_SX9306
+	default "17"
+	help
+	  This value is the standard of normal touch using
+	  SemTech sx9306 device driver.
+
+config SENSORS_SX9306_TEMPERATURE_COMPENSATION
+	depends on SENSORS_SX9306
+	tristate "SX9306 Grip sensor temperature compensation"
+	default n
+	help
+	  Say Y here if you use temperature compensation code.
+	  This option enables grip sensors using
+	  temperature compensation code.
+
+config SENSORS_GRIP_SIMDET
+	depends on SENSORS_SX9306
+	tristate "SX9306 Grip sensor Simcard detect code"
+	default n
+	help
+	  Say Y here if you use sim card detect code for grip sensor.
+	  This option enables grip sensors using
+	  sim card detect code for grip sensor
 
 source "drivers/sensorhub/atmel/factory/Kconfig"
 source "drivers/sensorhub/atmel/max_notchfilter/Kconfig"

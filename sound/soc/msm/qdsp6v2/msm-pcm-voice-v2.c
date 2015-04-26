@@ -29,6 +29,10 @@
 #include "msm-pcm-voice-v2.h"
 #include "q6voice.h"
 
+#if defined(CONFIG_MACH_TRLTE_EUR) && defined(CONFIG_SND_DSPG_DBMD2)
+extern int system_rev;
+#endif
+
 static struct msm_voice voice_info[VOICE_SESSION_INDEX_MAX];
 
 static struct snd_pcm_hardware msm_pcm_hardware = {
@@ -75,6 +79,14 @@ static bool is_qchat(struct msm_voice *pqchat)
 		return false;
 }
 
+static bool is_vowlan(struct msm_voice *pvowlan)
+{
+	if (pvowlan == &voice_info[VOWLAN_SESSION_INDEX])
+		return true;
+	else
+		return false;
+}
+
 static uint32_t get_session_id(struct msm_voice *pvoc)
 {
 	uint32_t session_id = 0;
@@ -85,6 +97,8 @@ static uint32_t get_session_id(struct msm_voice *pvoc)
 		session_id = voc_get_session_id(VOICE2_SESSION_NAME);
 	else if (is_qchat(pvoc))
 		session_id = voc_get_session_id(QCHAT_SESSION_NAME);
+	else if (is_vowlan(pvoc))
+		session_id = voc_get_session_id(VOWLAN_SESSION_NAME);
 	else
 		session_id = voc_get_session_id(VOICE_SESSION_NAME);
 
@@ -133,6 +147,10 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	} else if (!strncmp("QCHAT", substream->pcm->id, 5)) {
 		voice = &voice_info[QCHAT_SESSION_INDEX];
 		pr_debug("%s: Open QCHAT Substream Id=%s\n",
+			 __func__, substream->pcm->id);
+	} else if (!strncmp("VoWLAN", substream->pcm->id, 6)) {
+		voice = &voice_info[VOWLAN_SESSION_INDEX];
+		pr_debug("%s: Open VoWLAN Substream Id=%s\n",
 			 __func__, substream->pcm->id);
 	} else {
 		voice = &voice_info[VOICE_SESSION_INDEX];
@@ -373,6 +391,9 @@ static int msm_voice_gain_put(struct snd_kcontrol *kcontrol,
 	voc_set_rx_vol_step(session_id, RX_PATH, volume, ramp_duration);
 
 #if defined(CONFIG_SND_SOC_ES705) && defined(CONFIG_SND_SOC_VEQ_SUPPORT)
+#if defined(CONFIG_MACH_TRLTE_EUR) && defined(CONFIG_SND_DSPG_DBMD2)
+	if (system_rev < 15)
+#endif
 	es705_put_veq_block(volume);
 #endif
 
@@ -483,6 +504,7 @@ static int msm_voice_tty_mode_put(struct snd_kcontrol *kcontrol,
 	voc_set_tty_mode(voc_get_session_id(VOICE_SESSION_NAME), tty_mode);
 	voc_set_tty_mode(voc_get_session_id(VOICE2_SESSION_NAME), tty_mode);
 	voc_set_tty_mode(voc_get_session_id(VOLTE_SESSION_NAME), tty_mode);
+	voc_set_tty_mode(voc_get_session_id(VOWLAN_SESSION_NAME), tty_mode);
 
 	return 0;
 }

@@ -20,10 +20,11 @@ int msm_vidc_debug_out = VIDC_OUT_PRINTK;
 int msm_fw_debug = 0x18;
 int msm_fw_debug_mode = 0x1;
 int msm_fw_low_power_mode = 0x1;
-int msm_vp8_low_tier = 0x0;/* 0x1; *//* changed to support 3840x2160 VP8 */
 int msm_vidc_hw_rsp_timeout = 1000;
+int msm_vidc_vpe_csc_601_to_709 = 0x0;
 int msm_vidc_dcvs_mode = 0x0;
-int msm_vidc_vpe_csc_601_to_709;
+int msm_vidc_sys_idle_indicator = 0x0;
+u32 msm_vidc_firmware_unload_delay = 15000;
 
 struct debug_buffer {
 	char ptr[MAX_DBG_BUF_SIZE];
@@ -171,6 +172,23 @@ struct dentry *msm_vidc_debugfs_init_drv(void)
 			dir, &msm_vidc_hw_rsp_timeout)) {
 		dprintk(VIDC_ERR, "debugfs_create_file: fail\n");
 		goto failed_create_dir;
+	}
+	if (!debugfs_create_bool("enable_vpe_csc_601_709", S_IRUGO | S_IWUSR,
+			dir, &msm_vidc_vpe_csc_601_to_709)) {
+		dprintk(VIDC_ERR, "debugfs_create_file: fail\n");
+		goto failed_create_dir;
+	}
+	if (!debugfs_create_bool("sys_idle_indicator", S_IRUGO | S_IWUSR,
+			dir, &msm_vidc_sys_idle_indicator)) {
+		dprintk(VIDC_ERR,
+			"debugfs_create_file: sys_idle_indicator fail\n");
+		goto failed_create_dir;
+	}
+	if (!debugfs_create_u32("firmware_unload_delay", S_IRUGO | S_IWUSR,
+					dir, &msm_vidc_firmware_unload_delay)) {
+		dprintk(VIDC_ERR,
+					"debugfs_create_file: firmware_unload_delay fail\n");
+					goto failed_create_dir;
 	}
 	return dir;
 

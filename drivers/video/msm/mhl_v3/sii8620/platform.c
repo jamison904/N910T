@@ -40,6 +40,10 @@
 #define MFD_MAX778XX_COMMON
 #include <linux/mfd/max77823-private.h>
 #endif /* CONFIG_MFD_MAX77823 */
+#if defined(CONFIG_MFD_MAX77843)
+#define MFD_MAX778XX_COMMON
+#include <linux/mfd/max77843-private.h>
+#endif /* CONFIG_MFD_MAX77843 */
 #endif /* CONFIG_MHL3_SEC_FEATURE */
 
 #include "si_fw_macros.h"
@@ -1243,10 +1247,12 @@ static int sii8620_extcon_notifier(struct notifier_block *self,
 #endif
 #if defined(CONFIG_MACH_TRLTE_LDU) || defined(CONFIG_MACH_TBLTE_LDU)
 	} else if (cable->cable_type == EXTCON_HMT) {
+#if 0 //disable hmt
 		cable->cable_state = event;
 		sii8620->muic_state = event;
 		sii8620->pdata->is_hmt = true;
 		schedule_work(&cable->work);
+#endif
 #endif
 	}
 	return NOTIFY_DONE;

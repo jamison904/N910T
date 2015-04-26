@@ -1185,6 +1185,7 @@ bad:
 		 * to avoid issues in the future. Marking all objects
 		 * as used avoids touching the remaining objects.
 		 */
+		BUG();
 		slab_fix(s, "Marking all objects used");
 		page->inuse = page->objects;
 		page->freelist = NULL;
@@ -1246,6 +1247,7 @@ out:
 	return n;
 
 fail:
+	BUG();
 	slab_unlock(page);
 	spin_unlock_irqrestore(&n->list_lock, *flags);
 	slab_fix(s, "Object at 0x%p not freed", object);
@@ -1332,8 +1334,8 @@ static unsigned long kmem_cache_flags(unsigned long object_size,
 #ifdef CONFIG_TIMA_RKP_RO_CRED
 	return flags;
 #else
-	if (slub_debug && (!slub_debug_slabs ||
-		!strncmp(slub_debug_slabs, name, strlen(slub_debug_slabs))))
+	if (slub_debug && (!slub_debug_slabs || (name &&
+		!strncmp(slub_debug_slabs, name, strlen(slub_debug_slabs)))))
 		flags |= slub_debug;
 
 	return flags;
@@ -2523,10 +2525,6 @@ redo:
 	tid = c->tid;
 	preempt_enable();
 
-
-	if (c->freelist != NULL)
-		check_freelist(c->freelist);
-
 	object = c->freelist;
 	page = c->page;
 	if (unlikely(!object || !node_match(page, node)))
@@ -2556,6 +2554,10 @@ redo:
 			goto redo;
 		}
 		prefetch_freepointer(s, next_object);
+
+		if (c->freelist != NULL)
+			check_freelist(c->freelist);
+
 		stat(s, ALLOC_FASTPATH);
 	}
 
@@ -4471,7 +4473,13 @@ static ssize_t show_slab_objects(struct kmem_cache *s,
 
 			page = ACCESS_ONCE(c->partial);
 			if (page) {
-				x = page->pobjects;
+				node = page_to_nid(page);
+				if (flags & SO_TOTAL)
+					WARN_ON_ONCE(1);
+				else if (flags & SO_OBJECTS)
+					WARN_ON_ONCE(1);
+				else
+					x = page->pages;
 				total += x;
 				nodes[node] += x;
 			}

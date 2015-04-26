@@ -32,8 +32,14 @@
 #include <linux/msm-bus.h>
 #include <linux/msm-bus-board.h>
 #include <mach/gpiomux.h>
+#include <linux/spinlock.h>
+#include <linux/suspend.h>
+#include <linux/rwsem.h>
 #include <mach/msm_pcie.h>
 #include <net/cnss.h>
+#include <linux/crypto.h>
+#include <linux/scatterlist.h>
+
 #define subsys_to_drv(d) container_of(d, struct cnss_data, subsys_desc)
 
 #define VREG_ON			1
@@ -66,6 +72,8 @@
 #define POWER_ON_DELAY		2000
 #define WLAN_ENABLE_DELAY	10000
 #define WLAN_RECOVERY_DELAY	1000
+
+static DEFINE_SPINLOCK(pci_link_down_lock);
 
 struct cnss_wlan_gpio_info {
 	char *name;
@@ -116,6 +124,9 @@ static struct cnss_data {
 	struct wakeup_source ws;
 	uint32_t recovery_count;
 	enum cnss_driver_status driver_status;
+#ifdef CONFIG_CNSS_SECURE_FW
+	void *fw_mem;
+#endif
 } *penv;
 
 extern unsigned int system_rev;
@@ -444,6 +455,8 @@ void cnss_setup_fw_files(u16 revision)
 			CNSS_MAX_FILE_NAME);
 		strlcpy(penv->fw_files.utf_board_data, "utfbd11.bin",
 			CNSS_MAX_FILE_NAME);
+		strlcpy(penv->fw_files.epping_file, "epping11.bin",
+			CNSS_MAX_FILE_NAME);
 		break;
 
 	case QCA6174_FW_1_3:
@@ -456,6 +469,8 @@ void cnss_setup_fw_files(u16 revision)
 		strlcpy(penv->fw_files.utf_file, "utf13.bin",
 			CNSS_MAX_FILE_NAME);
 		strlcpy(penv->fw_files.utf_board_data, "utfbd13.bin",
+			CNSS_MAX_FILE_NAME);
+		strlcpy(penv->fw_files.epping_file, "epping13.bin",
 			CNSS_MAX_FILE_NAME);
 		break;
 
@@ -470,6 +485,8 @@ void cnss_setup_fw_files(u16 revision)
 			CNSS_MAX_FILE_NAME);
 		strlcpy(penv->fw_files.utf_board_data, "utfbd20.bin",
 			CNSS_MAX_FILE_NAME);
+		strlcpy(penv->fw_files.epping_file, "epping20.bin",
+			CNSS_MAX_FILE_NAME);
 		break;
 
 	case QCA6174_FW_3_0:
@@ -483,6 +500,8 @@ void cnss_setup_fw_files(u16 revision)
 			CNSS_MAX_FILE_NAME);
 		strlcpy(penv->fw_files.utf_board_data, "utfbd30.bin",
 			CNSS_MAX_FILE_NAME);
+		strlcpy(penv->fw_files.epping_file, "epping30.bin",
+			CNSS_MAX_FILE_NAME);
 		break;
 
 	default:
@@ -495,6 +514,8 @@ void cnss_setup_fw_files(u16 revision)
 		strlcpy(penv->fw_files.utf_file, "utf.bin",
 			CNSS_MAX_FILE_NAME);
 		strlcpy(penv->fw_files.utf_board_data, "utfbd.bin",
+			CNSS_MAX_FILE_NAME);
+		strlcpy(penv->fw_files.epping_file, "epping.bin",
 			CNSS_MAX_FILE_NAME);
 		break;
 	}
@@ -510,6 +531,20 @@ int cnss_get_fw_files(struct cnss_fw_files *pfw_files)
 	return 0;
 }
 EXPORT_SYMBOL(cnss_get_fw_files);
+
+#ifdef CONFIG_CNSS_SECURE_FW
+static void cnss_wlan_fw_mem_alloc(struct pci_dev *pdev)
+{
+	penv->fw_mem = devm_kzalloc(&pdev->dev, MAX_FIRMWARE_SIZE, GFP_KERNEL);
+
+	if (!penv->fw_mem)
+		pr_debug("Memory not available for Secure FW\n");
+}
+#else
+static void cnss_wlan_fw_mem_alloc(struct pci_dev *pdev)
+{
+}
+#endif
 
 static int cnss_wlan_pci_probe(struct pci_dev *pdev,
 			       const struct pci_device_id *id)
@@ -547,8 +582,12 @@ static int cnss_wlan_pci_probe(struct pci_dev *pdev,
 	cnss_wlan_gpio_set(gpio_info, WLAN_EN_LOW);
 	ret = cnss_wlan_vreg_set(vreg_info, VREG_OFF);
 
-	if (ret)
+	if (ret) {
 		pr_err("can't turn off wlan vreg\n");
+		goto err_pcie_suspend;
+	}
+
+	cnss_wlan_fw_mem_alloc(pdev);
 
 err_pcie_suspend:
 
@@ -563,8 +602,12 @@ static void cnss_wlan_pci_remove(struct pci_dev *pdev)
 static int cnss_wlan_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	int ret = 0;
-	struct cnss_wlan_driver *wdriver = penv->driver;
+	struct cnss_wlan_driver *wdriver;
 
+	if (!penv)
+		goto out;
+
+	wdriver = penv->driver;
 	if (!wdriver)
 		goto out;
 
@@ -584,8 +627,12 @@ out:
 static int cnss_wlan_pci_resume(struct pci_dev *pdev)
 {
 	int ret = 0;
-	struct cnss_wlan_driver *wdriver = penv->driver;
+	struct cnss_wlan_driver *wdriver;
 
+	if (!penv)
+		goto out;
+
+	wdriver = penv->driver;
 	if (!wdriver)
 		goto out;
 
@@ -601,6 +648,28 @@ static int cnss_wlan_pci_resume(struct pci_dev *pdev)
 out:
 	return ret;
 }
+
+static DECLARE_RWSEM(cnss_pm_sem);
+
+static int cnss_pm_notify(struct notifier_block *b,
+			unsigned long event, void *p)
+{
+	switch (event) {
+	case PM_SUSPEND_PREPARE:
+		down_write(&cnss_pm_sem);
+		break;
+
+	case PM_POST_SUSPEND:
+		up_write(&cnss_pm_sem);
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block cnss_pm_notifier = {
+	.notifier_call = cnss_pm_notify,
+};
 
 static DEFINE_PCI_DEVICE_TABLE(cnss_wlan_pci_id_table) = {
 	{ QCA6174_VENDOR_ID, QCA6174_DEVICE_ID, PCI_ANY_ID, PCI_ANY_ID },
@@ -624,12 +693,52 @@ void recovery_work_handler(struct work_struct *recovery)
 
 DECLARE_WORK(recovery_work, recovery_work_handler);
 
+void cnss_schedule_recovery_work(void)
+{
+	schedule_work(&recovery_work);
+}
+EXPORT_SYMBOL(cnss_schedule_recovery_work);
+
 void cnss_pci_link_down_cb(struct msm_pcie_notify *notify)
 {
+	unsigned long flags;
+
+	spin_lock_irqsave(&pci_link_down_lock, flags);
+	if (penv->pcie_link_down_ind) {
+		pr_debug("PCI link down recovery is in progress, ignore!\n");
+		spin_unlock_irqrestore(&pci_link_down_lock, flags);
+		return;
+	}
 	penv->pcie_link_down_ind = true;
+	spin_unlock_irqrestore(&pci_link_down_lock, flags);
+
 	pr_err("PCI link down, schedule recovery\n");
 	schedule_work(&recovery_work);
 }
+
+void cnss_wlan_pci_link_down(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&pci_link_down_lock, flags);
+	if (penv->pcie_link_down_ind) {
+		pr_debug("PCI link down recovery is in progress, ignore!\n");
+		spin_unlock_irqrestore(&pci_link_down_lock, flags);
+		return;
+	}
+	penv->pcie_link_down_ind = true;
+	spin_unlock_irqrestore(&pci_link_down_lock, flags);
+
+	pr_err("PCI link down detected by host driver, schedule recovery!\n");
+	schedule_work(&recovery_work);
+}
+EXPORT_SYMBOL(cnss_wlan_pci_link_down);
+
+int cnss_pcie_shadow_control(struct pci_dev *dev, bool enable)
+{
+	return msm_pcie_shadow_control(dev, enable);
+}
+EXPORT_SYMBOL(cnss_pcie_shadow_control);
 
 int cnss_wlan_register_driver(struct cnss_wlan_driver *driver)
 {
@@ -912,6 +1021,18 @@ void cnss_pm_wake_lock_destroy(struct wakeup_source *ws)
 	wakeup_source_trash(ws);
 }
 EXPORT_SYMBOL(cnss_pm_wake_lock_destroy);
+
+void cnss_lock_pm_sem(void)
+{
+	down_read(&cnss_pm_sem);
+}
+EXPORT_SYMBOL(cnss_lock_pm_sem);
+
+void cnss_release_pm_sem(void)
+{
+	up_read(&cnss_pm_sem);
+}
+EXPORT_SYMBOL(cnss_release_pm_sem);
 
 void cnss_flush_work(void *work)
 {
@@ -1330,6 +1451,8 @@ static int cnss_probe(struct platform_device *pdev)
 
 	cnss_pm_wake_lock_init(&penv->ws, "cnss_wlock");
 
+	register_pm_notifier(&cnss_pm_notifier);
+
 #ifdef CONFIG_CNSS_MAC_BUG
 	/* 0-4K memory is reserved for QCA6174 to address a MAC HW bug.
 	 * MAC would do an invalid pointer fetch based on the data
@@ -1377,6 +1500,8 @@ static int cnss_remove(struct platform_device *pdev)
 {
 	struct cnss_wlan_vreg_info *vreg_info = &penv->vreg_info;
 	struct cnss_wlan_gpio_info *gpio_info = &penv->gpio_info;
+
+	unregister_pm_notifier(&cnss_pm_notifier);
 
 	cnss_pm_wake_lock_destroy(&penv->ws);
 
@@ -1482,6 +1607,45 @@ void cnss_set_driver_status(enum cnss_driver_status driver_status)
 	penv->driver_status = driver_status;
 }
 EXPORT_SYMBOL(cnss_set_driver_status);
+
+#ifdef CONFIG_CNSS_SECURE_FW
+int cnss_get_sha_hash(const u8 *data, u32 data_len, u8 *hash_idx, u8 *out)
+{
+	struct scatterlist sg;
+	struct hash_desc desc;
+	int ret = 0;
+
+	if (!out) {
+		pr_err("memory for output buffer is not allocated\n");
+		ret = -EINVAL;
+		goto end;
+	}
+
+	desc.flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+	desc.tfm   = crypto_alloc_hash(hash_idx, 0, CRYPTO_ALG_ASYNC);
+	if (IS_ERR(desc.tfm)) {
+		pr_err("crypto_alloc_hash failed:%ld\n", PTR_ERR(desc.tfm));
+		ret = PTR_ERR(desc.tfm);
+		goto end;
+	}
+
+	sg_init_one(&sg, data, data_len);
+	ret = crypto_hash_digest(&desc, &sg, sg.length, out);
+	crypto_free_hash(desc.tfm);
+end:
+	return ret;
+}
+EXPORT_SYMBOL(cnss_get_sha_hash);
+
+void *cnss_get_fw_ptr(void)
+{
+	if (!penv)
+		return NULL;
+
+	return penv->fw_mem;
+}
+EXPORT_SYMBOL(cnss_get_fw_ptr);
+#endif
 
 module_init(cnss_initialize);
 module_exit(cnss_exit);

@@ -70,7 +70,7 @@
 		mif_cp2,phone_active-gpio = <86>;
 		mif_cp2,ap_cp_int1-gpio = <0xFFF>;
 		mif_cp2,ap_cp_int2-gpio = <0xFFF>;
-		mif_cp2,uart_sel-gpio = <116> ;
+		mif_cp2,uart_sel-gpio = <&msmgpio 116 0> ;
 		mif_cp2,sim_sel-gpio = <0>;
 
 		mif_cp2,uart_txd-gpio = <43>;

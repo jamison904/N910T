@@ -141,6 +141,8 @@ struct ffs_data {
 	struct usb_request		*ep0req;		/* P: mutex */
 	struct completion		ep0req_completion;	/* P: mutex */
 	int				ep0req_status;		/* P: mutex */
+	struct completion		epin_completion;
+	struct completion		epout_completion;
 
 	/* reference counter */
 	atomic_t			ref;
@@ -320,6 +322,7 @@ struct ffs_epfile {
 	/* Protects ep->ep and ep->req. */
 	struct mutex			mutex;
 	wait_queue_head_t		wait;
+	atomic_t			error;
 
 	struct ffs_data			*ffs;
 	struct ffs_ep			*ep;	/* P: ffs->eps_lock */
@@ -748,8 +751,11 @@ static const struct file_operations ffs_ep0_operations = {
 
 static void ffs_epfile_io_complete(struct usb_ep *_ep, struct usb_request *req)
 {
+	struct ffs_ep *ep = _ep->driver_data;
 	ENTER();
-	if (likely(req->context)) {
+
+	/* req may be freed during unbind */
+	if (ep && ep->req && likely(req->context)) {
 		struct ffs_ep *ep = _ep->driver_data;
 		ep->status = req->status ? req->status : req->actual;
 		complete(req->context);
@@ -761,6 +767,7 @@ static ssize_t ffs_epfile_io(struct file *file,
 {
 	struct ffs_epfile *epfile = file->private_data;
 	struct ffs_ep *ep;
+	struct ffs_data *ffs = epfile->ffs;
 	char *data = NULL;
 	ssize_t ret;
 	int halt;
@@ -788,9 +795,24 @@ first_try:
 				goto error;
 			}
 
-			if (wait_event_interruptible(epfile->wait,
-						     (ep = epfile->ep))) {
-				ret = -EINTR;
+			/* Don't wait on write if device is offline */
+			if (!read) {
+				ret = -ENODEV;
+				goto error;
+			}
+
+			/*
+			 * if ep is disabled, this fails all current IOs
+			 * and wait for next epfile open to happen
+			 */
+			if (!atomic_read(&epfile->error)) {
+				ret = wait_event_interruptible(epfile->wait,
+					(ep = epfile->ep));
+				if (ret < 0)
+					goto error;
+			}
+			if (!ep) {
+				ret = -ENODEV;
 				goto error;
 			}
 		}
@@ -844,25 +866,47 @@ first_try:
 		ret = -EBADMSG;
 	} else {
 		/* Fire the request */
-		DECLARE_COMPLETION_ONSTACK(done);
+		struct completion *done;
 
 		struct usb_request *req = ep->req;
-		req->context  = &done;
 		req->complete = ffs_epfile_io_complete;
 		req->buf      = data;
 		req->length   = buffer_len;
 
+		if (read) {
+			INIT_COMPLETION(ffs->epout_completion);
+			req->context  = done = &ffs->epout_completion;
+		} else {
+			INIT_COMPLETION(ffs->epin_completion);
+			req->context  = done = &ffs->epin_completion;
+		}
 		ret = usb_ep_queue(ep->ep, req, GFP_ATOMIC);
 
 		spin_unlock_irq(&epfile->ffs->eps_lock);
 
 		if (unlikely(ret < 0)) {
-			/* nop */
-		} else if (unlikely(wait_for_completion_interruptible(&done))) {
+			ret = -EIO;
+		} else if (unlikely(wait_for_completion_interruptible(done))) {
+			spin_lock_irq(&epfile->ffs->eps_lock);
+			/*
+			 * While we were acquiring lock endpoint got disabled
+			 * (disconnect) or changed (composition switch) ?
+			 */
+			if (epfile->ep == ep)
+				usb_ep_dequeue(ep->ep, req);
+			spin_unlock_irq(&epfile->ffs->eps_lock);
 			ret = -EINTR;
-			usb_ep_dequeue(ep->ep, req);
 		} else {
-			ret = ep->status;
+			spin_lock_irq(&epfile->ffs->eps_lock);
+			/*
+			 * While we were acquiring lock endpoint got disabled
+			 * (disconnect) or changed (composition switch) ?
+			 */
+			if (epfile->ep == ep)
+				ret = ep->status;
+			else
+				ret = -ENODEV;
+			spin_unlock_irq(&epfile->ffs->eps_lock);
 			if (read && ret > 0) {
 				if (ret > len)
 					ret = -EOVERFLOW;
@@ -907,6 +951,7 @@ ffs_epfile_open(struct inode *inode, struct file *file)
 
 	file->private_data = epfile;
 	ffs_data_opened(epfile->ffs);
+	atomic_set(&epfile->error, 0);
 
 	return 0;
 }
@@ -918,6 +963,7 @@ ffs_epfile_release(struct inode *inode, struct file *file)
 
 	ENTER();
 
+	atomic_set(&epfile->error, 1);
 	ffs_data_closed(epfile->ffs);
 
 	return 0;
@@ -1050,37 +1096,19 @@ struct ffs_sb_fill_data {
 	struct ffs_file_perms perms;
 	umode_t root_mode;
 	const char *dev_name;
-	union {
-		/* set by ffs_fs_mount(), read by ffs_sb_fill() */
-		void *private_data;
-		/* set by ffs_sb_fill(), read by ffs_fs_mount */
-		struct ffs_data *ffs_data;
-	};
+	struct ffs_data *ffs_data;
 };
 
 static int ffs_sb_fill(struct super_block *sb, void *_data, int silent)
 {
 	struct ffs_sb_fill_data *data = _data;
 	struct inode	*inode;
-	struct ffs_data	*ffs;
+	struct ffs_data	*ffs = data->ffs_data;
 
 	ENTER();
 
-	/* Initialise data */
-	ffs = ffs_data_new();
-	if (unlikely(!ffs))
-		goto Enomem;
-
 	ffs->sb              = sb;
-	ffs->dev_name        = kstrdup(data->dev_name, GFP_KERNEL);
-	if (unlikely(!ffs->dev_name))
-		goto Enomem;
-	ffs->file_perms      = data->perms;
-	ffs->private_data    = data->private_data;
-
-	/* used by the caller of this function */
-	data->ffs_data       = ffs;
-
+	data->ffs_data       = NULL;
 	sb->s_fs_info        = ffs;
 	sb->s_blocksize      = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
@@ -1096,17 +1124,14 @@ static int ffs_sb_fill(struct super_block *sb, void *_data, int silent)
 				  &data->perms);
 	sb->s_root = d_make_root(inode);
 	if (unlikely(!sb->s_root))
-		goto Enomem;
+		return -ENOMEM;
 
 	/* EP0 file */
 	if (unlikely(!ffs_sb_create_file(sb, "ep0", ffs,
 					 &ffs_ep0_operations, NULL)))
-		goto Enomem;
+		return -ENOMEM;
 
 	return 0;
-
-Enomem:
-	return -ENOMEM;
 }
 
 static int ffs_fs_parse_opts(struct ffs_sb_fill_data *data, char *opts)
@@ -1209,6 +1234,7 @@ ffs_fs_mount(struct file_system_type *t, int flags,
 	struct dentry *rv;
 	int ret;
 	void *ffs_dev;
+	struct ffs_data	*ffs;
 
 	ENTER();
 
@@ -1216,18 +1242,30 @@ ffs_fs_mount(struct file_system_type *t, int flags,
 	if (unlikely(ret < 0))
 		return ERR_PTR(ret);
 
+	ffs = ffs_data_new();
+	if (unlikely(!ffs))
+		return ERR_PTR(-ENOMEM);
+	ffs->file_perms = data.perms;
+
+	ffs->dev_name = kstrdup(dev_name, GFP_KERNEL);
+	if (unlikely(!ffs->dev_name)) {
+		ffs_data_put(ffs);
+		return ERR_PTR(-ENOMEM);
+	}
+
 	ffs_dev = functionfs_acquire_dev_callback(dev_name);
-	if (IS_ERR(ffs_dev))
-		return ffs_dev;
+	if (IS_ERR(ffs_dev)) {
+		ffs_data_put(ffs);
+		return ERR_CAST(ffs_dev);
+	}
+	ffs->private_data = ffs_dev;
+	data.ffs_data = ffs;
 
-	data.dev_name = dev_name;
-	data.private_data = ffs_dev;
 	rv = mount_nodev(t, flags, &data, ffs_sb_fill);
-
-	/* data.ffs_data is set by ffs_sb_fill */
-	if (IS_ERR(rv))
+	if (IS_ERR(rv) && data.ffs_data) {
 		functionfs_release_dev_callback(data.ffs_data);
-
+		ffs_data_put(data.ffs_data);
+	}
 	return rv;
 }
 
@@ -1339,6 +1377,8 @@ static struct ffs_data *ffs_data_new(void)
 	spin_lock_init(&ffs->eps_lock);
 	init_waitqueue_head(&ffs->ev.waitq);
 	init_completion(&ffs->ep0req_completion);
+	init_completion(&ffs->epout_completion);
+	init_completion(&ffs->epin_completion);
 
 	/* XXX REVISIT need to update it in some places, or do we? */
 	ffs->ev.can_stall = 1;
@@ -1549,6 +1589,7 @@ static void ffs_func_free(struct ffs_function *func)
 		if (ep->ep && ep->req)
 			usb_ep_free_request(ep->ep, ep->req);
 		ep->req = NULL;
+		ep->ep = NULL;
 		++ep;
 	} while (--count);
 	spin_unlock_irqrestore(&func->ffs->eps_lock, flags);
@@ -1575,8 +1616,11 @@ static void ffs_func_eps_disable(struct ffs_function *func)
 	spin_lock_irqsave(&func->ffs->eps_lock, flags);
 	do {
 		/* pending requests get nuked */
-		if (likely(ep->ep))
+		if (likely(ep->ep)) {
 			usb_ep_disable(ep->ep);
+			ep->ep->driver_data = NULL;
+		}
+		atomic_set(&epfile->error, 1);
 		epfile->ep = NULL;
 
 		++ep;

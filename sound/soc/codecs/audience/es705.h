@@ -13,6 +13,7 @@
 #include <linux/mutex.h>
 #include <sound/soc.h>
 #include <linux/time.h>
+#include <linux/wakelock.h>
 
 #include "es705-uart.h"
 
@@ -643,6 +644,7 @@ struct es705_priv {
 	int current_bwe;
 	int current_veq;
 	int current_veq_preset;
+	struct wake_lock voice_det_wakelock;
 #if defined(SEAMLESS_VOICE_WAKEUP)
 	struct class *svoice;
 	struct device *keyword;

@@ -2310,7 +2310,7 @@ static const struct file_operations max77823_fuelgauge_debugfs_fops = {
 static int max77823_fuelgauge_parse_dt(struct max77823_fuelgauge_data *fuelgauge)
 {
 	struct device_node *np = of_find_node_by_name(NULL, "max77823-fuelgauge");
-	sec_battery_platform_data_t *pdata = fuelgauge->pdata;
+	sec_fuelgauge_platform_data_t *pdata = fuelgauge->pdata;
 	int ret;
 
 	/* reset, irq gpio info */
@@ -2372,7 +2372,7 @@ static int max77823_fuelgauge_probe(struct platform_device *pdev)
 	if (!fuelgauge)
 		return -ENOMEM;
 
-	pdata->fuelgauge_data = kzalloc(sizeof(sec_battery_platform_data_t), GFP_KERNEL);
+	pdata->fuelgauge_data = kzalloc(sizeof(sec_fuelgauge_platform_data_t), GFP_KERNEL);
 	if (!pdata->fuelgauge_data) {
 		kfree(fuelgauge);
 		return -ENOMEM;

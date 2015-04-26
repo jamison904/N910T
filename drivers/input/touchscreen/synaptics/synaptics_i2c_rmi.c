@@ -1387,14 +1387,6 @@ static int synaptics_rmi4_f12_abs_report(struct synaptics_rmi4_data *rmi4_data,
 					input_report_abs(rmi4_data->input_dev,
 							ABS_MT_WIDTH_MAJOR, rmi4_data->f51_handle->surface_data.sumsize);
 #endif
-#else
-					input_report_abs(rmi4_data->input_dev,
-							ABS_MT_SUMSIZE, rmi4_data->f51_handle->surface_data.sumsize);
-#endif
-
-#ifdef REPORT_ANGLE
-					input_report_abs(rmi4_data->input_dev,
-							ABS_MT_ANGLE, rmi4_data->f51_handle->surface_data.angle);
 #endif
 					input_report_abs(rmi4_data->input_dev,
 							ABS_MT_PALM, rmi4_data->f51_handle->surface_data.palm);
@@ -1610,15 +1602,7 @@ static int synaptics_rmi4_f51_edge_swipe(struct synaptics_rmi4_data *rmi4_data,
 
 	if (!rmi4_data->f51_handle)
 		return -ENODEV;
-#ifdef REPORT_ANGLE
-	if (data->edge_swipe_dg >= 90 && data->edge_swipe_dg <= 180)
-		rmi4_data->f51_handle->surface_data.angle = data->edge_swipe_dg - 180;
-	else if (data->edge_swipe_dg < 90)
-		rmi4_data->f51_handle->surface_data.angle = data->edge_swipe_dg;
-	else
-		dev_err(&rmi4_data->i2c_client->dev, "Skip wrong edge swipe angle [%d]\n",
-				data->edge_swipe_dg);
-#endif
+
 	rmi4_data->f51_handle->surface_data.sumsize = data->edge_swipe_mm;
 	rmi4_data->f51_handle->surface_data.wx = data->edge_swipe_wx;
 	rmi4_data->f51_handle->surface_data.wy = data->edge_swipe_wy;
@@ -3821,15 +3805,6 @@ static void synaptics_rmi4_set_input_data(struct synaptics_rmi4_data *rmi4_data)
 	input_set_abs_params(rmi4_data->input_dev,
 			ABS_MT_WIDTH_MAJOR, 0,
 			EDGE_SWIPE_WIDTH_MAX, 0, 0);
-#else
-	input_set_abs_params(rmi4_data->input_dev,
-			ABS_MT_SUMSIZE, 0,
-			EDGE_SWIPE_WIDTH_MAX, 0, 0);
-#endif
-#ifdef REPORT_ANGLE
-	input_set_abs_params(rmi4_data->input_dev,
-			ABS_MT_ANGLE, 0,
-			EDGE_SWIPE_ANGLE_MAX, 0, 0);
 #endif
 	input_set_abs_params(rmi4_data->input_dev,
 			ABS_MT_PALM, 0,

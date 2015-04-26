@@ -117,6 +117,7 @@ enum adreno_gpurev {
  * submitted operation
  * @work: work_struct to put the dispatcher in a work queue
  * @kobj: kobject for the dispatcher directory in the device sysfs node
+ * @idle_gate: Gate to wait on for dispatcher to idle
  */
 struct adreno_dispatcher {
 	struct mutex mutex;
@@ -132,10 +133,12 @@ struct adreno_dispatcher {
 	unsigned int tail;
 	struct work_struct work;
 	struct kobject kobj;
+	struct completion idle_gate;
 };
 
 enum adreno_dispatcher_flags {
 	ADRENO_DISPATCHER_POWER = 0,
+	ADRENO_DISPATCHER_ACTIVE = 1,
 };
 
 struct adreno_gpudev;
@@ -184,11 +187,11 @@ struct adreno_device {
 	struct adreno_dispatcher dispatcher;
 	struct kgsl_memdesc pwron_fixup;
 	unsigned int pwron_fixup_dwords;
-	struct work_struct start_work;
 	struct work_struct input_work;
 	struct adreno_busy_data busy_data;
 	unsigned int ram_cycles_lo;
 	unsigned int starved_ram_lo;
+	atomic_t halt;
 };
 
 /**
@@ -363,6 +366,8 @@ enum adreno_regs {
 	ADRENO_REG_UCHE_INVALIDATE0,
 	ADRENO_REG_RBBM_PERFCTR_LOAD_VALUE_LO,
 	ADRENO_REG_RBBM_PERFCTR_LOAD_VALUE_HI,
+	ADRENO_REG_VBIF_XIN_HALT_CTRL0,
+	ADRENO_REG_VBIF_XIN_HALT_CTRL1,
 	ADRENO_REG_REGISTER_MAX,
 };
 
@@ -510,12 +515,14 @@ struct adreno_gpudev {
 	struct adreno_coresight *coresight;
 
 	struct adreno_irq *irq;
+	unsigned int vbif_xin_halt_ctrl0_mask;
 	/* GPU specific function hooks */
 	irqreturn_t (*irq_handler)(struct adreno_device *);
 	void (*irq_control)(struct adreno_device *, int);
 	unsigned int (*irq_pending)(struct adreno_device *);
 	void (*irq_setup)(struct adreno_device *);
 	void * (*snapshot)(struct adreno_device *, void *, int *, int);
+	void (*gpudev_init)(struct adreno_device *);
 	int (*rb_init)(struct adreno_device *, struct adreno_ringbuffer *);
 	int (*perfcounter_init)(struct adreno_device *);
 	void (*perfcounter_close)(struct adreno_device *);
@@ -595,6 +602,7 @@ extern const unsigned int a4xx_sp_tp_registers_count;
 
 extern unsigned int ft_detect_regs[];
 
+int adreno_spin_idle(struct kgsl_device *device);
 int adreno_idle(struct kgsl_device *device);
 bool adreno_isidle(struct kgsl_device *device);
 
@@ -618,6 +626,8 @@ void *adreno_snapshot(struct kgsl_device *device, void *snapshot, int *remain,
 void adreno_dispatcher_start(struct kgsl_device *device);
 int adreno_dispatcher_init(struct adreno_device *adreno_dev);
 void adreno_dispatcher_close(struct adreno_device *adreno_dev);
+int adreno_dispatcher_idle(struct adreno_device *adreno_dev);
+int adreno_dispatcher_idle_unsafe(struct adreno_device *adreno_dev);
 void adreno_dispatcher_irq_fault(struct kgsl_device *device);
 void adreno_dispatcher_stop(struct adreno_device *adreno_dev);
 
@@ -936,7 +946,7 @@ static inline unsigned int adreno_getreg(struct adreno_device *adreno_dev,
 
 /**
  * adreno_gpu_fault() - Return the current state of the GPU
- * @adreno_dev: A ponter to the adreno_device to query
+ * @adreno_dev: A pointer to the adreno_device to query
  *
  * Return 0 if there is no fault or positive with the last type of fault that
  * occurred
@@ -961,6 +971,7 @@ static inline void adreno_set_gpu_fault(struct adreno_device *adreno_dev,
 	smp_wmb();
 }
 
+
 /**
  * adreno_clear_gpu_fault() - Clear the GPU fault register
  * @adreno_dev: A pointer to an adreno_device structure
@@ -973,6 +984,47 @@ static inline void adreno_clear_gpu_fault(struct adreno_device *adreno_dev)
 	atomic_set(&adreno_dev->dispatcher.fault, 0);
 	smp_wmb();
 }
+
+/**
+ * adreno_gpu_halt() - Return the GPU halt refcount
+ * @adreno_dev: A pointer to the adreno_device
+ */
+static inline int adreno_gpu_halt(struct adreno_device *adreno_dev)
+{
+	smp_rmb();
+	return atomic_read(&adreno_dev->halt);
+}
+
+
+/**
+ * adreno_clear_gpu_halt() - Clear the GPU halt refcount
+ * @adreno_dev: A pointer to the adreno_device
+ */
+static inline void adreno_clear_gpu_halt(struct adreno_device *adreno_dev)
+{
+	atomic_set(&adreno_dev->halt, 0);
+	smp_wmb();
+}
+
+/**
+ * adreno_get_gpu_halt() - Increment GPU halt refcount
+ * @adreno_dev: A pointer to the adreno_device
+ */
+static inline void adreno_get_gpu_halt(struct adreno_device *adreno_dev)
+{
+	atomic_inc(&adreno_dev->halt);
+}
+
+/**
+ * adreno_put_gpu_halt() - Decrement GPU halt refcount
+ * @adreno_dev: A pointer to the adreno_device
+ */
+static inline void adreno_put_gpu_halt(struct adreno_device *adreno_dev)
+{
+	if (atomic_dec_return(&adreno_dev->halt) < 0)
+		BUG();
+}
+
 
 /*
  * adreno_vbif_start() - Program VBIF registers, called in device start

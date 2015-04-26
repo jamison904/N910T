@@ -767,9 +767,9 @@ static void fc8300_13seg_init(HANDLE handle, DEVICEID devid, u8 filter_cal)
 	fc8300_write(handle, devid, 0x90, 0xb2);
 
 	fc8300_write(handle, devid, 0xb2, 0x00);
-	fc8300_write(handle, devid, 0xb3, 0x01);
+	fc8300_write(handle, devid, 0xb3, 0x04);
 	fc8300_write(handle, devid, 0xb4, 0x00);
-	fc8300_write(handle, devid, 0xb5, 0x02);
+	fc8300_write(handle, devid, 0xb5, 0x04);
 	fc8300_write(handle, devid, 0xb6, 0x00);
 	fc8300_write(handle, devid, 0xb7, 0x07);
 	fc8300_write(handle, devid, 0xb8, 0x00);
@@ -1894,12 +1894,21 @@ s32 fc8300_cs_set_freq(HANDLE handle, DEVICEID devid, u32 freq)
 s32 fc8300_cs_get_rssi(HANDLE handle, DEVICEID devid, s32 *rssi)
 {
 	s8 tmp = 0;
+	u8 filter_r_value = 0;
 
 	fc8300_read(handle, devid, 0xeb, (u8 *) &tmp);
 	*rssi = tmp;
 
 	if (tmp < 0)
 		*rssi += 1;
+
+	if (broadcast_type == ISDBT_1SEG || broadcast_type == ISDBTMM_1SEG) {
+		fc8300_read(handle, devid, 0x44, &filter_r_value);
+		filter_r_value = (filter_r_value & 0x7f);
+
+		if ((filter_r_value < 0x60) && (filter_r_value > 0x50))
+			*rssi += 6;
+	}
 
 	return BBM_OK;
 }

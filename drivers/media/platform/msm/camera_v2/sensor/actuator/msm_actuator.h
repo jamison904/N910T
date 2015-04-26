@@ -33,6 +33,7 @@ enum msm_actuator_state_t {
 	ACTUATOR_POWER_DOWN,
 };
 
+
 struct msm_actuator_func_tbl {
 	int32_t (*actuator_i2c_write_b_af)(struct msm_actuator_ctrl_t *,
 			uint8_t,
@@ -113,4 +114,10 @@ static struct remove_af_noise af_sensor_interface = {
 	.af_pdata = NULL,
 	.af_func = NULL,
 };
+
+
+#if defined(CONFIG_OIS)
+int16_t msm_actuator_move_for_ois_test(void);
+#endif
+
 #endif

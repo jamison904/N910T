@@ -2118,7 +2118,6 @@ int soc_dpcm_runtime_update(struct snd_soc_dapm_widget *widget)
 
 		paths = dpcm_path_get(fe, SNDRV_PCM_STREAM_PLAYBACK, &list);
 		if (paths < 0) {
-			dpcm_path_put(&list);
 			dev_warn(fe->dev, "ASoC: %s no valid %s path\n",
 					fe->dai_link->name,  "playback");
 			mutex_unlock(&card->mutex);
@@ -2149,7 +2148,6 @@ capture:
 
 		paths = dpcm_path_get(fe, SNDRV_PCM_STREAM_CAPTURE, &list);
 		if (paths < 0) {
-			dpcm_path_put(&list);
 			dev_warn(fe->dev, "ASoC: %s no valid %s path\n",
 					fe->dai_link->name,  "capture");
 			mutex_unlock(&card->mutex);
@@ -2214,12 +2212,12 @@ static int dpcm_fe_dai_open(struct snd_pcm_substream *fe_substream)
 	fe->dpcm[stream].runtime = fe_substream->runtime;
 
 	ret = dpcm_path_get(fe, stream, &list);
-	if (ret <= 0) {
-		dpcm_path_put(&list);
-		dev_warn(fe->dev, "ASoC: %s no valid %s route\n",
-			fe->dai_link->name, stream ? "capture" : "playback");
+	if (ret < 0) {
+		dev_warn(fe->dev, "ASoC: %s no valid %s route err[%d]\n",
+			fe->dai_link->name, stream ? "capture" : "playback",
+			ret);
 		mutex_unlock(&fe->card->mutex);
-		return -EINVAL;
+		return ret;
 	}
 
 	/* calculate valid and active FE <-> BE dpcms */
@@ -2321,6 +2319,8 @@ int soc_new_pcm(struct snd_soc_pcm_runtime *rtd, int num)
 			pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream->private_data = rtd;
 		if (capture)
 			pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream->private_data = rtd;
+		if (platform->driver->pcm_new)
+			rtd->platform->driver->pcm_new(rtd);
 		goto out;
 	}
 

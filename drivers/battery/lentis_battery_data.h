@@ -33,7 +33,7 @@ static struct max17048_fuelgauge_battery_data_t max17048_battery_data[] = {
 };
 #endif
 
-#if defined(CONFIG_FUELGAUGE_MAX77823) || defined(CONFIG_FUELGAUGE_MAX77843)
+#if defined(CONFIG_FUELGAUGE_MAX77823)
 static struct max77823_fuelgauge_battery_data_t max77823_battery_data[] = {
 	/* SDI battery data (High voltage 4.4V) */
 	{

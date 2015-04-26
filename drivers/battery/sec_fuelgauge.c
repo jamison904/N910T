@@ -32,6 +32,7 @@ static enum power_supply_property sec_fuelgauge_props[] = {
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_TEMP_AMBIENT,
+	POWER_SUPPLY_PROP_ENERGY_FULL,
 };
 
 /* capacity is  0.1% unit */
@@ -94,6 +95,7 @@ static int sec_fg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 	case POWER_SUPPLY_PROP_TEMP:
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT:
+	case POWER_SUPPLY_PROP_ENERGY_FULL:
 		if (!sec_hal_fg_get_property(fuelgauge->client, psp, val))
 			return -EINVAL;
 		if (psp == POWER_SUPPLY_PROP_CAPACITY) {
@@ -366,7 +368,7 @@ static int fuelgauge_parse_dt(struct device *dev,
 			struct sec_fuelgauge_info *fuelgauge)
 {
 	struct device_node *np = dev->of_node;
-	sec_battery_platform_data_t *pdata = fuelgauge->pdata;
+	sec_fuelgauge_platform_data_t *pdata = fuelgauge->pdata;
 	int ret;
 #if 0
 	int ta_int_gpio;
@@ -465,7 +467,7 @@ static int sec_fuelgauge_probe(struct i2c_client *client,
 {
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
 	struct sec_fuelgauge_info *fuelgauge;
-	sec_battery_platform_data_t *pdata = NULL;
+	sec_fuelgauge_platform_data_t *pdata = NULL;
 	struct battery_data_t *battery_data = NULL;
 	int ret = 0;
 	union power_supply_propval raw_soc_val;
@@ -487,7 +489,7 @@ static int sec_fuelgauge_probe(struct i2c_client *client,
 	if (client->dev.of_node) {
 		int error;
 		pdata = devm_kzalloc(&client->dev,
-			sizeof(sec_battery_platform_data_t),
+			sizeof(sec_fuelgauge_platform_data_t),
 				GFP_KERNEL);
 		if (!pdata) {
 			dev_err(&client->dev, "Failed to allocate memory\n");

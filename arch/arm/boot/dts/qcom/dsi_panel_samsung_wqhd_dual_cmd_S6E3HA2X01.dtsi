@@ -23,9 +23,11 @@
 		qcom,enable-gpio = <&pma8084_gpios 6 0>;
 		qcom,rst-gpio = <&pma8084_gpios 21 0>;
 		qcom,te-gpio = <&msmgpio 12 0>;
-		qcom,esd-irq-gpio = <&pma8084_gpios 5 0x1>;
+		qcom,fg-err-gpio = <&pma8084_gpios 13 0x1>;
+		qcom,oled-det-gpio = <&pma8084_gpios 5 0x1>;
 
 		qcom,cont-splash-enabled;
+		qcom,cmd-sync-wait-broadcast;
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
 		qcom,mdss-dsi-panel-broadcast-mode;
@@ -100,6 +102,9 @@
 
 				29 01 00 00 00 00 03 FC A5 A5 		/* TEST KEY Disable */
 				15 01 00 00 00 00 02 ED 44 		/*ERR_FG VLIN monitoring on*/
+				29 01 00 00 00 00 02 B0 03
+				29 01 00 00 00 00 02 E7 67
+				29 01 00 00 00 00 02 ED 01				
 
 				29 01 00 00 00 00 24				/* Brightness condition set */
 					CA
@@ -675,9 +680,12 @@
 		qcom,enable-gpio = <&pma8084_gpios 6 0>;
 		qcom,rst-gpio = <&pma8084_gpios 21 0>;
 		qcom,te-gpio = <&msmgpio 12 0>;
-		qcom,esd-irq-gpio = <&pma8084_gpios 5 0x1>;
+		qcom,fg-err-gpio = <&pma8084_gpios 13 0x1>;
+		qcom,oled-det-gpio = <&pma8084_gpios 5 0x1>;
 
 		qcom,cont-splash-enabled;
+		qcom,cmd-sync-wait-broadcast;
+		qcom,cmd-sync-wait-trigger; /*SYNC UP WITH DSI1*/
 		qcom,partial-update-enabled;
 		qcom,partial-update-roi-merge;
 		qcom,mdss-dsi-panel-broadcast-mode;
@@ -751,6 +759,9 @@
 
 				29 01 00 00 00 00 03 FC A5 A5 		/* TEST KEY Disable */
 				15 01 00 00 00 00 02 ED 44 		/*ERR_FG VLIN monitoring on*/
+				29 01 00 00 00 00 02 B0 03
+				29 01 00 00 00 00 02 E7 67
+				29 01 00 00 00 00 02 ED 01				
 
 				29 01 00 00 00 00 24				/* Brightness condition set */
 					CA

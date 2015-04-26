@@ -39,6 +39,9 @@
 #include <linux/magic.h>
 #include "ecryptfs_kernel.h"
 
+#ifdef CONFIG_SDP
+#include "ecryptfs_sdp_chamber.h"
+#endif
 
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #include <linux/ctype.h>
@@ -186,11 +189,11 @@ enum { ecryptfs_opt_sig, ecryptfs_opt_ecryptfs_sig,
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	ecryptfs_opt_enable_filtering,
 #endif
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 	ecryptfs_opt_enable_cc,
 #endif
 #ifdef CONFIG_SDP
-	ecryptfs_opt_userid, ecryptfs_opt_sdp,
+	ecryptfs_opt_userid, ecryptfs_opt_sdp, ecryptfs_opt_chamber_dirs,
 #endif
        ecryptfs_opt_err };
 
@@ -212,10 +215,11 @@ static const match_table_t tokens = {
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	{ecryptfs_opt_enable_filtering, "ecryptfs_enable_filtering=%s"},
 #endif
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 	{ecryptfs_opt_enable_cc, "ecryptfs_enable_cc"},
 #endif
 #ifdef CONFIG_SDP
+	{ecryptfs_opt_chamber_dirs, "chamber=%s"},
 	{ecryptfs_opt_userid, "userid=%s"},
 	{ecryptfs_opt_sdp, "sdp_enabled"},
 #endif
@@ -258,6 +262,11 @@ static void ecryptfs_init_mount_crypt_stat(
 	INIT_LIST_HEAD(&mount_crypt_stat->global_auth_tok_list);
 	mutex_init(&mount_crypt_stat->global_auth_tok_list_mutex);
 	mount_crypt_stat->flags |= ECRYPTFS_MOUNT_CRYPT_STAT_INITIALIZED;
+
+#ifdef CONFIG_SDP
+	spin_lock_init(&mount_crypt_stat->chamber_dir_list_lock);
+	INIT_LIST_HEAD(&mount_crypt_stat->chamber_dir_list);
+#endif
 }
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 
@@ -479,7 +488,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			mount_crypt_stat->flags |= ECRYPTFS_ENABLE_FILTERING;
 			break;
 #endif
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 		case ecryptfs_opt_enable_cc:
             mount_crypt_stat->flags |= ECRYPTFS_ENABLE_CC;
 			break;
@@ -501,6 +510,16 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 		case ecryptfs_opt_sdp:
 			mount_crypt_stat->flags |= ECRYPTFS_MOUNT_SDP_ENABLED;
 			break;
+		case ecryptfs_opt_chamber_dirs: {
+			char *chamber_dirs = args[0].from;
+			char *token = NULL;
+
+			printk("%s : chamber dirs : %s\n", __func__, chamber_dirs);
+			while ((token = strsep(&chamber_dirs, "|")) != NULL)
+				if(!is_chamber_directory(mount_crypt_stat, token))
+					add_chamber_directory(mount_crypt_stat, token);
+		}
+		break;
 #endif
 		case ecryptfs_opt_err:
 		default:
@@ -548,7 +567,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 	mutex_lock(&key_tfm_list_mutex);
 	if (!ecryptfs_tfm_exists(mount_crypt_stat->global_default_cipher_name,
 				 NULL)) {
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 		rc = ecryptfs_add_new_key_tfm(
 			NULL, mount_crypt_stat->global_default_cipher_name,
 			mount_crypt_stat->global_default_cipher_key_size,
@@ -573,7 +592,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 	if ((mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES)
 	    && !ecryptfs_tfm_exists(
 		    mount_crypt_stat->global_default_fn_cipher_name, NULL)) {
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 		rc = ecryptfs_add_new_key_tfm(
 			NULL, mount_crypt_stat->global_default_fn_cipher_name,
 			mount_crypt_stat->global_default_fn_cipher_key_bytes,
@@ -617,7 +636,7 @@ static struct file_system_type ecryptfs_fs_type;
 static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags,
 			const char *dev_name, void *raw_data)
 {
-	struct super_block *s;
+	struct super_block *s, *lower_sb;
 	struct ecryptfs_sb_info *sbi;
 	struct ecryptfs_dentry_info *root_info;
 	const char *err = "Getting sb failed";
@@ -683,6 +702,8 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 		goto out_free;
 	}
 
+	lower_sb = path.dentry->d_sb;
+	atomic_inc(&lower_sb->s_active);
 	ecryptfs_set_superblock_lower(s, path.dentry->d_sb);
 
 	/**
@@ -700,18 +721,18 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 	inode = ecryptfs_get_inode(path.dentry->d_inode, s);
 	rc = PTR_ERR(inode);
 	if (IS_ERR(inode))
-		goto out_free;
+		goto out_sput;
 
 	s->s_root = d_make_root(inode);
 	if (!s->s_root) {
 		rc = -ENOMEM;
-		goto out_free;
+		goto out_sput;
 	}
 
 	rc = -ENOMEM;
 	root_info = kmem_cache_zalloc(ecryptfs_dentry_info_cache, GFP_KERNEL);
 	if (!root_info)
-		goto out_free;
+		goto out_sput;
 
 	/* ->kill_sb() will take care of root_info */
 	ecryptfs_set_dentry_private(s->s_root, root_info);
@@ -721,6 +742,8 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 	s->s_flags |= MS_ACTIVE;
 	return dget(s->s_root);
 
+out_sput:
+	atomic_dec(&lower_sb->s_active);
 out_free:
 	path_put(&path);
 out1:
@@ -746,6 +769,9 @@ static void ecryptfs_kill_block_super(struct super_block *sb)
 	kill_anon_super(sb);
 	if (!sb_info)
 		return;
+	if (sb_info->wsi_sb)
+		atomic_dec(&sb_info->wsi_sb->s_active);
+
 	ecryptfs_destroy_mount_crypt_stat(&sb_info->mount_crypt_stat);
 	bdi_destroy(&sb_info->bdi);
 	kmem_cache_free(ecryptfs_sb_info_cache, sb_info);

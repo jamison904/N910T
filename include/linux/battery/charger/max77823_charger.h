@@ -209,7 +209,7 @@ struct max77823_charger_data {
 	int wpc_input_curr_limit_step;
 	int charging_curr_step;
 
-	sec_battery_platform_data_t	*pdata;
+	sec_charger_platform_data_t	*pdata;
 };
 
 #endif /* __MAX77823_CHARGER_H */

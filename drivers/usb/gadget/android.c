@@ -73,9 +73,6 @@
 #include "f_mtp.c"
 #endif
 #include "f_accessory.c"
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_SIDESYNC
-#include "f_conn_gadget.c"
-#endif
 #include "f_rndis.c"
 #include "rndis.c"
 #include "f_qc_ecm.c"
@@ -161,6 +158,11 @@ struct android_usb_function_holder {
 	/* for android_conf.enabled_functions */
 	struct list_head enabled_list;
 };
+
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_SIDESYNC
+#include "f_conn_gadget.c"
+#endif
 
 /**
 * struct android_dev - represents android USB gadget device
@@ -432,6 +434,7 @@ static int android_enable(struct android_dev *dev)
 			if (err < 0) {
 				pr_err("%s: usb_add_config failed : err: %d\n",
 						__func__, err);
+				dev->disable_depth++;
 				return err;
 			}
 		}
@@ -486,23 +489,12 @@ static void ffs_function_enable(struct android_usb_function *f)
 {
 	struct android_dev *dev = f->android_dev;
 	struct functionfs_config *config = f->config;
-	int ret = 0;
 
 	config->enabled = true;
 
 	/* Disable the gadget until the function is ready */
-	if (!config->opened) {
+	if (!config->opened)
 		android_disable(dev);
-	} else {
-		/*
-		 * Call functionfs_bind to handle the case where userspace
-		 * passed descriptors before updating enabled functions list
-		 */
-		ret = functionfs_bind(config->data, dev->cdev);
-		if (ret)
-			pr_err("%s: functionfs_bind failed (%d)\n", __func__,
-									ret);
-	}
 }
 
 static void ffs_function_disable(struct android_usb_function *f)
@@ -587,24 +579,29 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 	struct functionfs_config *config = ffs_function.config;
 	int ret = 0;
 
-	if (dev) {
-		ret = functionfs_bind(ffs, dev->cdev);
-		if (ret)
-			return ret;
-	}
-
 	/* dev is null in case ADB is not in the composition */
-	if (dev)
+	if (dev) {
 		mutex_lock(&dev->mutex);
+		ret = functionfs_bind(ffs, dev->cdev);
+		if (ret) {
+			mutex_unlock(&dev->mutex);
+			return ret;
+		}
+	} else {
+		/* android ffs_func requires daemon to start only after enable*/
+		pr_debug("start adbd only in ADB composition\n");
+		return -ENODEV;
+	}
 
 	config->data = ffs;
 	config->opened = true;
+	/* Save dev in case the adb function will get disabled */
+	config->dev = dev;
 
-	if (config->enabled && dev)
+	if (config->enabled)
 		android_enable(dev);
 
-	if (dev)
-		mutex_unlock(&dev->mutex);
+	mutex_unlock(&dev->mutex);
 
 	return 0;
 }
@@ -614,30 +611,32 @@ static void functionfs_closed_callback(struct ffs_data *ffs)
 	struct android_dev *dev = ffs_function.android_dev;
 	struct functionfs_config *config = ffs_function.config;
 
-	/* In case new composition is without ADB, use saved one */
+	/*
+	 * In case new composition is without ADB or ADB got disabled by the
+	 * time ffs_daemon was stopped then use saved one
+	 */
 	if (!dev)
 		dev = config->dev;
 
+	/* fatal-error: It should never happen */
 	if (!dev)
 		pr_err("adb_closed_callback: config->dev is NULL");
 
 	if (dev)
 		mutex_lock(&dev->mutex);
 
-	config->opened = false;
-
 	if (config->enabled && dev)
 		android_disable(dev);
 
 	config->dev = NULL;
 
-	if (dev)
-		mutex_unlock(&dev->mutex);
-
 	config->opened = false;
 	config->data = NULL;
 
 	functionfs_unbind(ffs);
+
+	if (dev)
+		mutex_unlock(&dev->mutex);
 }
 
 static void *functionfs_acquire_dev_callback(const char *dev_name)
@@ -648,45 +647,6 @@ static void *functionfs_acquire_dev_callback(const char *dev_name)
 static void functionfs_release_dev_callback(struct ffs_data *ffs_data)
 {
 }
-
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_SIDESYNC
-struct conn_gadget_data {
-	bool opened;
-	bool enabled;
-};
-
-static int
-conn_gadget_function_init(struct android_usb_function *f,
-		struct usb_composite_dev *cdev)
-{
-	f->config = kzalloc(sizeof(struct conn_gadget_data), GFP_KERNEL);
-	if (!f->config)
-		return -ENOMEM;
-
-	return conn_gadget_setup();
-}
-
-static void conn_gadget_function_cleanup(struct android_usb_function *f)
-{
-	conn_gadget_cleanup();
-	kfree(f->config);
-}
-
-static int
-conn_gadget_function_bind_config(struct android_usb_function *f,
-		struct usb_configuration *c)
-{
-	return conn_gadget_bind_config(c);
-}
-
-static struct android_usb_function conn_gadget_function = {
-	.name = "conn_gadget",
-	.init = conn_gadget_function_init,
-	.cleanup = conn_gadget_function_cleanup,
-	.bind_config = conn_gadget_function_bind_config,
-};
-#endif /* CONFIG_USB_ANDROID_SAMSUNG_SIDESYNC */
-
 
 /* ACM */
 static char acm_transports[32];	/*enabled ACM ports - "tty[,sdio]"*/
@@ -764,6 +724,7 @@ acm_function_bind_config(struct android_usb_function *f,
 		pr_err("acm: Cannot setup transports");
 		goto out;
 	}
+
 	for (i = 0; i < ports; i++) {
 		config->f_acm_inst[i] = usb_get_function_instance("acm");
 		if (IS_ERR(config->f_acm_inst[i])) {
@@ -3232,6 +3193,9 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	mutex_lock(&dev->mutex);
 
 	sscanf(buff, "%d", &enabled);
+	printk(KERN_INFO "usb: enabled: %d, dev->enabled: %d\n",
+			enabled, dev->enabled);
+
 	if (enabled && !dev->enabled) {
 		/*
 		 * Update values in composite driver's copy of

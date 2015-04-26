@@ -40,6 +40,7 @@
 #include <linux/of_gpio.h>
 #include <mach/tlte_felica_gpio.h>
 
+#include <linux/wakelock.h>
 
 enum push_state {
 	PUSH_NONE,
@@ -57,6 +58,7 @@ struct sec_nfc_fn_info {
 
 	struct mutex confirm_mutex;
 	enum readable_state readable;
+	struct wake_lock wake_lock;
 };
 
 static irqreturn_t sec_nfc_fn_push_thread_fn(int irq, void *dev_id)
@@ -70,6 +72,12 @@ static irqreturn_t sec_nfc_fn_push_thread_fn(int irq, void *dev_id)
 	mutex_unlock(&info->push_mutex);
 
 	wake_up_interruptible(&info->push_wait);
+
+	if(!wake_lock_active(&info->wake_lock))
+	{
+		pr_err("\n %s: Set wake_lock_timeout for 2 sec. !!!\n", __func__);
+		wake_lock_timeout(&info->wake_lock, 2 * HZ);		
+	}
 
 	return IRQ_HANDLED;
 }
@@ -287,6 +295,8 @@ static int sec_nfc_fn_probe(struct platform_device *pdev)
 		goto err_push_wake;
 	}
 
+	wake_lock_init(&info->wake_lock, WAKE_LOCK_SUSPEND, "NFCWAKE_FN");
+
 	info->miscdev.minor = MISC_DYNAMIC_MINOR;
 	info->miscdev.name = SEC_NFC_FN_DRIVER_NAME;
 	info->miscdev.fops = &sec_nfc_fn_fops;
@@ -305,6 +315,7 @@ err_dev_reg:
 err_push_wake:
 err_push_req:
 err_info_alloc:
+	wake_lock_destroy(&info->wake_lock);
 	kfree(info);
 err_pdata:
 
@@ -320,6 +331,7 @@ static int sec_nfc_fn_remove(struct platform_device *pdev)
 
 	misc_deregister(&info->miscdev);
 	free_irq(pdata->push, info);
+	wake_lock_destroy(&info->wake_lock);
 	kfree(info->pdata);
 	kfree(info);
 

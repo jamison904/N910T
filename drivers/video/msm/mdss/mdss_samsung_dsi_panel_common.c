@@ -159,7 +159,7 @@ static struct dsi_cmd write_ldi_fps_cmds;
 #endif
 
 #if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_S6E3HA2_CMD_WQHD_PT_PANEL) || defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_S6E3HA2_CMD_WQXGA_PT_PANEL)
-#define CONFIG_ESD_FG_RECOVERY
+#define CONFIG_LCD_RECOVERY
 #endif
 
 #ifdef LDI_ADJ_VDDM_OFFSET
@@ -178,6 +178,7 @@ static struct dsi_cmd panel_set_te_2;
 static struct dsi_cmd panel_osc_type_read_cmds;
 extern int te_set_done;
 #endif
+
 
 static struct mipi_samsung_driver_data msd;
 /*List of supported Panels with HW revision detail
@@ -244,15 +245,22 @@ char board_rev;
 static int lcd_attached = 1;
 static int lcd_id = 0;
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
+#if defined(CONFIG_LCD_RECOVERY)
 #define ESD_DEBUG 1
 
-struct work_struct  err_fg_work;
-static int err_fg_gpio = 0;	/* PM_GPIO5 */
-static int esd_count = 0;
-int err_fg_working = 0;
+struct work_struct  lcd_refresh_work;
+static int oled_det_gpio = 0;
+
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
+static int err_fg_gpio = 0;
+#endif
+static int lcd_refresh_count = 0;
+int lcd_refresh_working = 0;
 
 static int esd_enable = 0;
+
+struct mdss_panel_data *pdata_dsi0;
+struct mdss_panel_data *pdata_dsi1;
 #endif
 
 #if defined(CONFIG_LCD_CLASS_DEVICE) && defined(DDI_VIDEO_ENHANCE_TUNING)
@@ -668,7 +676,7 @@ static int mdss_dsi_set_col_page_addr(struct mdss_panel_data *pdata)
 			/* no new frame update */
 			pr_err("%s: ctrl=%d, no partial roi set\n",
 						__func__, ctrl->ndx);
-			if (!mdss_dsi_broadcast_mode_enabled())
+			if (!mdss_dsi_sync_wait_enable(ctrl))
 				return 0;
 		}
 
@@ -676,7 +684,7 @@ static int mdss_dsi_set_col_page_addr(struct mdss_panel_data *pdata)
 				__func__, ctrl->ndx, roi.x,
 				roi.y, roi.w, roi.h);
 
-		if (pinfo->partial_update_dcs_cmd_by_left) {
+		if (pinfo->dcs_cmd_by_left) {
 			if (left_or_both && ctrl->ndx == DSI_CTRL_RIGHT) {
 				/* 2A/2B sent by left already */
 			pr_err("%s: ctrl=%d, sned-by-left\n",
@@ -712,9 +720,9 @@ static int mdss_dsi_set_col_page_addr(struct mdss_panel_data *pdata)
 		cmdreq.rlen = 0;
 		cmdreq.cb = NULL;
 
-		if (pinfo->partial_update_dcs_cmd_by_left)
+		if (pinfo->dcs_cmd_by_left)
 			ctrl = mdss_dsi_get_ctrl_by_index(DSI_CTRL_LEFT);
-		else if(mdss_dsi_broadcast_mode_enabled())
+		else if(mdss_dsi_sync_wait_enable(ctrl))
 			ctrl = mdss_dsi_get_ctrl_by_index(DSI_CTRL_RIGHT);
 
 		mdss_dsi_cmdlist_put(ctrl, &cmdreq);
@@ -1516,16 +1524,15 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct dcs_cmd_req cmdreq;
 	struct mdss_panel_info *pinfo;
 
-	mutex_lock(&msd.lock);
-
 	if (get_lcd_attached() == 0) {
 		printk("%s: get_lcd_attached(0)!\n",__func__);
-		mutex_unlock(&msd.lock);
 		return;
 	}
 
+	mutex_lock(&msd.lock);
+
 	pinfo = &(ctrl->panel_data.panel_info);
-	if (pinfo->partial_update_dcs_cmd_by_left) {
+	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT) {
 			mutex_unlock(&msd.lock);
 			return;
@@ -1633,6 +1640,7 @@ static int samsung_nv_read(struct dsi_cmd_desc *desc, char *destBuffer,
 
 	loop_limit = (srcLength + packet_size[0] - 1)
 				/ packet_size[0];
+	mutex_lock(&msd.lock);
 	mdss_dsi_cmds_send(msd.ctrl_pdata, &(s6e8aa0_packet_size_cmd), 1, 0);
 
 	show_cnt = 0;
@@ -1660,6 +1668,7 @@ static int samsung_nv_read(struct dsi_cmd_desc *desc, char *destBuffer,
 		if (read_pos-startoffset >= srcLength)
 			break;
 	}
+	mutex_unlock(&msd.lock);
 
 	pr_info("%s\n", show_buffer);
 	return read_pos-startoffset;
@@ -2395,11 +2404,18 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("mdss_dsi_panel_on DSI_MODE = %d ++\n",msd.pdata->panel_info.mipi.mode);
 	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (ctrl->shared_pdata.broadcast_enable) {
+	if (mdss_dsi_sync_wait_enable(ctrl)) {
 		if (ctrl->ndx == DSI_CTRL_0) {
+#if defined(CONFIG_LCD_RECOVERY)
+			pdata_dsi0 = &ctrl->panel_data;
+#endif
 			pr_info("%s: Broadcast mode. 1st ctrl(0). return..\n",__func__);
 			goto end;
 		}
+#if defined(CONFIG_LCD_RECOVERY)
+		else
+			pdata_dsi1 = &ctrl->panel_data;
+#endif
 	}
 #if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_S6E3HA2_CMD_WQHD_PT_PANEL) || defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_S6E3HA2_CMD_WQXGA_PT_PANEL) //TEMP for T
 	if (system_rev >= 2)
@@ -2428,9 +2444,11 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	 */
 	if (alpm_data->alpm_status) {
 		if (!alpm_data->alpm_status(CHECK_PREVIOUS_STATUS))
-			mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+			mdss_dsi_panel_cmds_send(msd.ctrl_pdata , &msd.ctrl_pdata->on_cmds);
+
 	} else {
-		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+		mdss_dsi_panel_cmds_send(msd.ctrl_pdata , &msd.ctrl_pdata->on_cmds);
+
 #if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_CMD_FHD_FA2_PT_PANEL)
 		if (te_set_done == TE_SET_DONE) {
 			mipi_samsung_disp_send_cmd(PANEL_SET_TE, true);
@@ -2514,16 +2532,18 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	mipi_samsung_disp_send_cmd(PANEL_BRIGHT_CTRL, true);
 #endif
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
+#if defined(CONFIG_LCD_RECOVERY)
 	if(esd_enable){
-		if (err_fg_working){
-			err_fg_working = 0;
-			esd_count++;
+		if (lcd_refresh_working){
+			lcd_refresh_working = 0;
+			lcd_refresh_count++;
 		}
 
+		enable_irq(gpio_to_irq(oled_det_gpio));
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
 		enable_irq(gpio_to_irq(err_fg_gpio));
-		pr_info("%s: ESD enable irq (%d)esd_count(%d)\n", __func__,
-			gpio_get_value(err_fg_gpio),esd_count);
+#endif
+		pr_info("%s: ESD enable irq lcd_refresh_count(%d)\n", __func__,lcd_refresh_count);
 	}
 #endif
 
@@ -2561,12 +2581,16 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	msd.ctrl_pdata = ctrl;
 
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
+#if defined(CONFIG_LCD_RECOVERY)
 	if (ctrl->ndx == DSI_CTRL_0) {
-		if (esd_enable && !err_fg_working && msd.dstat.on) {
+		if (esd_enable && !lcd_refresh_working && msd.dstat.on) {
+			disable_irq_nosync(gpio_to_irq(oled_det_gpio));
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
 			disable_irq_nosync(gpio_to_irq(err_fg_gpio));
-			cancel_work_sync(&err_fg_work);
-			pr_info("%s: ESD disable irq (%d)\n", __func__, gpio_get_value(err_fg_gpio));
+#endif
+			cancel_work_sync(&lcd_refresh_work);
+
+			pr_info("%s: ESD disable irq\n", __func__);
 		}
 	}
 #endif
@@ -2576,7 +2600,7 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 
 	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (ctrl->shared_pdata.broadcast_enable) {
+	if (mdss_dsi_sync_wait_enable(ctrl)) {
 		if (ctrl->ndx == DSI_CTRL_0) {
 			pr_info("%s: Broadcast mode. 1st ctrl(0). return..\n",__func__);
 			goto end;
@@ -2586,7 +2610,7 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	if (alpm_data->alpm_status && alpm_data->alpm_status(CHECK_CURRENT_STATUS))
 		pr_info("[ALPM_DEBUG] %s: Skip to send panel off cmds\n", __func__);
 	else
-		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
+		mdss_dsi_panel_cmds_send(msd.ctrl_pdata, &msd.ctrl_pdata->off_cmds);
 
 	pr_info("DISPLAY_OFF\n");
 end:
@@ -3027,7 +3051,6 @@ exit_free:
 	return -ENOMEM;
 }
 
-
 static int mdss_panel_parse_dt(struct device_node *np,
 					struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
@@ -3089,31 +3112,53 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		pinfo->pdest = DISPLAY_1;
 	}
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
+#if defined(CONFIG_LCD_RECOVERY)
 
 	if (pinfo->pdest == DISPLAY_1) {
-		err_fg_gpio = of_get_named_gpio(np, "qcom,esd-irq-gpio", 0);
-		pr_err("%s:%d, err_fg_gpio (%d)",__func__, __LINE__,err_fg_gpio );
+		oled_det_gpio = of_get_named_gpio(np, "qcom,oled-det-gpio", 0);
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
+		err_fg_gpio = of_get_named_gpio(np, "qcom,fg-err-gpio", 0);
+		pr_info("%s:%d, err_fg_gpio(%d)",__func__, __LINE__, err_fg_gpio);
+#endif
+		pr_info("%s:%d, oled_det_gpio(%d)",__func__, __LINE__,oled_det_gpio);
 
-		if (!gpio_is_valid(err_fg_gpio)) {
-			pr_err("%s:%d, esd gpio not specified\n",
+
+		if (!gpio_is_valid(oled_det_gpio)) {
+			pr_err("%s:%d, oled_det gpio not specified\n",
 							__func__, __LINE__);
 		} else {
 
-			if (system_rev < 12)
+			rc = gpio_request(oled_det_gpio, "oled_det_enable");
+			if (rc) {
+				pr_err("request oled_det gpio failed, rc=%d\n",
+					   rc);
+				gpio_free(oled_det_gpio);
+/*				esd_enable = 0;*/
+/*				return -ENODEV;*/
+				}
+			}
+
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
+		if (!gpio_is_valid(err_fg_gpio)) {
+			pr_err("%s:%d, err fg gpio not specified\n",
+							__func__, __LINE__);
+		} else {
+
+			rc = gpio_request(err_fg_gpio, "err_fg_enable");
+			if (rc) {
+				pr_err("request err_fg gpio failed, rc=%d\n",
+					   rc);
+				gpio_free(oled_det_gpio);
+/*				esd_enable = 0;*/
+/*				return -ENODEV;*/
+				}
+			}
+#endif
+	    if (system_rev < 12)
 				esd_enable = 0;
 			else
 				esd_enable = 1;
 
-			rc = gpio_request(err_fg_gpio, "esd_enable");
-			if (rc) {
-				pr_err("request esd gpio failed, rc=%d\n",
-					   rc);
-				gpio_free(err_fg_gpio);
-				esd_enable = 0;
-/*				return -ENODEV;*/
-				}
-			}
 		pr_info("%s:%d, esd_enable(%d) system_rev(%d)\n",__func__, __LINE__,esd_enable, system_rev );
 	}
 #endif
@@ -4036,7 +4081,7 @@ static int samsung_dsi_panel_event_handler(int event)
 			break;
 		case MDSS_EVENT_READ_LDI_STATUS:
 			mipi_samsung_read_nv_mem(msd.pdata, &rddpm_cmds, rddpm_buf);
-			mipi_samsung_read_nv_mem(msd.pdata, &rddsm_cmds, rddsm_buf);				
+			mipi_samsung_read_nv_mem(msd.pdata, &rddsm_cmds, rddsm_buf);
 			return (int)rddpm_buf[0];
 #if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_CMD_FHD_FA2_PT_PANEL)
 		case MDSS_EVENT_TE_UPDATE:
@@ -5053,40 +5098,63 @@ void mdss_dsi_panel_alpm_register(struct mdss_panel_alpm_data *alpm_data)
 }
 
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
-static irqreturn_t err_fg_irq_handler(int irq, void *handle)
+#if defined(CONFIG_LCD_RECOVERY)
+static irqreturn_t lcd_esd_handler(int irq, void *handle)
 {
 	struct msm_fb_data_type *mfd = msd.mfd;
 
-	if(err_fg_working || !(mdss_fb_is_power_on(mfd))|| mdss_fb_get_first_cmt_flag()) return IRQ_HANDLED;
+	if(lcd_refresh_working || !(mdss_fb_is_power_on(mfd))|| mdss_fb_get_first_cmt_flag()) return IRQ_HANDLED;
 
-	pr_info("%s handler + irq(%d) state(%d)", __func__, irq, gpio_get_value(err_fg_gpio));
-	err_fg_working = 1;
+	pr_info("%s + irq(%d) oled_det(%d)\n", __func__, irq, gpio_get_value(oled_det_gpio));
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
+	pr_info(" err_fg(%d)\n", gpio_get_value(err_fg_gpio));
+#endif
+
+	lcd_refresh_working = 1;
+	disable_irq_nosync(gpio_to_irq(oled_det_gpio));
+
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
 	disable_irq_nosync(gpio_to_irq(err_fg_gpio));
-	schedule_work(&err_fg_work);
-	pr_info("%s : handler - state(%d)", __func__, gpio_get_value(err_fg_gpio));
+#endif
 
+	schedule_work(&lcd_refresh_work);
+
+	pr_info("%s - oled_det(%d)\n", __func__, gpio_get_value(oled_det_gpio));
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
+	pr_info(" err_fg(%d)\n", gpio_get_value(err_fg_gpio));
+#endif
 	return IRQ_HANDLED;
 }
 
-void err_fg_work_func(struct work_struct *work)
+void lcd_refresh_work_func(struct work_struct *work)
 {
 	struct msm_fb_data_type *mfd = msd.mfd;
 	struct mdss_panel_data *pdata = msd.pdata;
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
 
 	char *envp[2] = {"PANEL_ALIVE=0", NULL};
 	struct device *dev = msd.mfd->fbi->dev;
 
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
 
-	pr_info("%s : start irqstate(%d)", __func__, gpio_get_value(err_fg_gpio));
+	pr_info("%s+ oled_det(%d)\n", __func__, gpio_get_value(oled_det_gpio));
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
+	pr_info("err_fg(%d)\n", gpio_get_value(err_fg_gpio));
+#endif
 	if(msd.mfd == NULL){
 		pr_err("%s: mfd not initialized Skip ESD recovery\n", __func__);
 		return;
 	}
 
 	if (mdss_fb_is_power_on(mfd)) {
-		pdata->panel_info.panel_dead = true; /*for cmd mode panel only*/
-
+		if (pdata->panel_info.type == MIPI_CMD_PANEL){
+			if(mdss_dsi_sync_wait_enable(ctrl)){
+				pdata_dsi0->panel_info.panel_dead = true;
+				pdata_dsi1->panel_info.panel_dead = true;
+			}else
+				pdata->panel_info.panel_dead = true;
+		}
 		kobject_uevent_env(&dev->kobj, KOBJ_CHANGE, envp);
 		pr_err("Panel has gone bad, sending uevent - %s\n", envp[0]);
 	}
@@ -5100,7 +5168,7 @@ static ssize_t mipi_samsung_esd_check_show(struct device *dev,
 {
 	int rc;
 
-	rc = snprintf((char *)buf, 20, "esd count %d\n", esd_count);
+	rc = snprintf((char *)buf, 20, "lcd_refresh_count %d\n", lcd_refresh_count);
 
 	return rc;
 }
@@ -5109,7 +5177,7 @@ static ssize_t mipi_samsung_esd_check_store(struct device *dev,
 {
 	struct msm_fb_data_type *mfd = msd.mfd;
 
-	err_fg_irq_handler(0, mfd);
+	lcd_esd_handler(0, mfd);
 	return 1;
 }
 
@@ -5466,7 +5534,7 @@ static int mdss_samsung_create_sysfs(void)
 	}
 #endif
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
+#if defined(CONFIG_LCD_RECOVERY)
 #ifdef ESD_DEBUG
 	rc= sysfs_create_file(&lcd_device->dev.kobj,
 							&dev_attr_esd_check.attr);
@@ -5538,17 +5606,26 @@ int mdss_dsi_panel_init(struct device_node *node, struct mdss_dsi_ctrl_pdata *ct
 		ctrl_pdata->panel_data.panel_info.cont_splash_enabled = 1;
 	}
 
-#if defined(CONFIG_ESD_FG_RECOVERY)
+#if defined(CONFIG_LCD_RECOVERY)
 	if (ctrl_pdata->panel_data.panel_info.pdest == DISPLAY_1 && esd_enable) {
 
-		INIT_WORK(&err_fg_work, err_fg_work_func);
+		INIT_WORK(&lcd_refresh_work, lcd_refresh_work_func);
 
+		rc = request_threaded_irq(gpio_to_irq(oled_det_gpio),
+			NULL, lcd_esd_handler, IRQF_TRIGGER_FALLING | IRQF_ONESHOT, "oled_detect", NULL);
+		if (rc) {
+			pr_err("%s : Failed to request_irq.:ret=%d", __func__, rc);
+		}
+		disable_irq(gpio_to_irq(oled_det_gpio));
+
+#if defined(CONFIG_LCD_RECOVERY_ERR_FG)
 		rc = request_threaded_irq(gpio_to_irq(err_fg_gpio),
-			NULL, err_fg_irq_handler, IRQF_TRIGGER_FALLING | IRQF_ONESHOT, "esd_detect", NULL);
+			NULL, lcd_esd_handler, IRQF_TRIGGER_RISING | IRQF_ONESHOT, "err_fg_detect", NULL);
 		if (rc) {
 			pr_err("%s : Failed to request_irq.:ret=%d", __func__, rc);
 		}
 		disable_irq(gpio_to_irq(err_fg_gpio));
+#endif
 	}
 #endif
 
@@ -5588,14 +5665,14 @@ int mdss_dsi_panel_init(struct device_node *node, struct mdss_dsi_ctrl_pdata *ct
 		else
 			ctrl_pdata->set_col_page_addr = mdss_dsi_set_col_page_addr;
 
-		ctrl_pdata->panel_data.panel_info.partial_update_dcs_cmd_by_left =
-					of_property_read_bool(node, "qcom,partial-update-dcs-cmd-by-left");
+		ctrl_pdata->panel_data.panel_info.dcs_cmd_by_left =
+					of_property_read_bool(node, "qcom,dcs-cmd-by-left");
 		ctrl_pdata->panel_data.panel_info.partial_update_roi_merge =
 					of_property_read_bool(node, "qcom,partial-update-roi-merge");
 	} else {
 		pr_info("%s:%d Partial update disabled.\n", __func__, __LINE__);
 		ctrl_pdata->panel_data.panel_info.partial_update_enabled = 0;
-		ctrl_pdata->panel_data.panel_info.partial_update_dcs_cmd_by_left = 0;
+		ctrl_pdata->panel_data.panel_info.dcs_cmd_by_left = 0;
 		ctrl_pdata->panel_data.panel_info.partial_update_roi_merge = 0;
 		ctrl_pdata->set_col_page_addr = NULL;
 	}

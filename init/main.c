@@ -77,6 +77,7 @@
 #include <linux/ptrace.h>
 #include <linux/blkdev.h>
 #include <linux/elevator.h>
+#include <linux/random.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -159,6 +160,9 @@ EXPORT_SYMBOL(reset_devices);
 
 int boot_mode_recovery;
 EXPORT_SYMBOL(boot_mode_recovery);
+
+int boot_mode_security;
+EXPORT_SYMBOL(boot_mode_security);
 
 static int __init set_reset_devices(char *str)
 {
@@ -398,8 +402,11 @@ static noinline void rkp_init(void)
 					offsetof(struct task_struct, active_mm), 0x3f840221);		
 	tima_send_cmd5(offsetof(struct cred, uid), offsetof(struct cred, euid), 
 					offsetof(struct cred, bp_pgd), offsetof(struct cred, bp_task), 
-					offsetof(struct cred, exec_depth), 0x3f841221);
-	tima_send_cmd(offsetof(struct cred,security),0x3f842221);
+					offsetof(struct cred, type), 0x3f841221);
+tima_send_cmd5(offsetof(struct cred,security),offsetof(struct task_struct,pid),
+					offsetof(struct task_struct,real_parent),offsetof(struct task_struct,comm),
+					offsetof(struct mm_struct,pgd),0x3f842221);
+
 	printk(KERN_ERR"RKP CRED INIT %x\n", sizeof(struct cred));
 #endif /*CONFIG_TIMA_RKP_RO_CRED*/
 
@@ -483,6 +490,13 @@ static int __init do_early_param(char *param, char *val, const char *unused)
 	        if ((strncmp(val, "1", 1) == 0)||(strncmp(val, "2", 1) == 0)) {
 				pr_info("Recovery Boot Mode \n");
 				boot_mode_recovery = 1;
+			}
+	}
+	/* Check Security Mode , 0 : normal mode, 1 : security mode */
+	if ((strncmp(param, "androidboot.security_mode", 26) == 0)) {
+	        if ((strncmp(val, "1526595585", 10) == 0)) {
+				pr_info("Security Boot Mode \n");
+				boot_mode_security = 1;
 			}
 	}
 	return 0;
@@ -857,6 +871,7 @@ static void __init do_basic_setup(void)
 	do_ctors();
 	usermodehelper_enable();
 	do_initcalls();
+	random_int_secret_init();
 }
 
 static void __init do_pre_smp_initcalls(void)

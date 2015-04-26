@@ -119,17 +119,16 @@ enum mdp_wfd_blk_type {
 };
 
 /**
-  * enum mdp_commit_stage_type - Indicate different commit stages
-  *
-  * @MDP_COMMIT_STATE_WAIT_FOR_PINGPONG:	At the stage of
-               being ready to wait for pingpong buffer.
-  * @MDP_COMMIT_STATE_PINGPONG_DONE:	At the stage that pingpong buffer
-  *			it ready.
-  */
-
-enum mdp_commit_state_type {
-	MDP_COMMIT_STAGE_WAIT_FOR_PINGPONG,
-	MDP_COMMIT_STAGE_PINGPONG_DONE,
+ * enum mdp_commit_stage_type - Indicate different commit stages
+ *
+ * @MDP_COMMIT_STATE_WAIT_FOR_PINGPONG:	At the stage of
+ *			being ready to wait for pingpong buffer.
+ * @MDP_COMMIT_STATE_PINGPONG_DONE:	At the stage that pingpong buffer
+ *			is ready.
+ */
+enum mdp_commit_stage_type {
+	MDP_COMMIT_STAGE_SETUP_DONE,
+	MDP_COMMIT_STAGE_READY_FOR_KICKOFF,
 };
 
 struct mdss_mdp_ctl;
@@ -147,22 +146,33 @@ enum mdss_mdp_wb_ctl_type {
 	MDSS_MDP_WB_CTL_TYPE_LINE
 };
 
+enum mdss_mdp_bw_vote_mode {
+	MDSS_MDP_BW_MODE_NONE = 0,
+	MDSS_MDP_BW_MODE_UHD = BIT(0),
+	MDSS_MDP_BW_MODE_QHD = BIT(1),
+	MDSS_MDP_BW_MODE_MAX
+};
+
 struct mdss_mdp_perf_params {
 	u64 bw_overlap;
 	u64 bw_prefill;
 	u32 prefill_bytes;
 	u64 bw_ctl;
 	u32 mdp_clk_rate;
+	u32 bw_vote_mode;
 };
 
 struct mdss_mdp_ctl {
 	u32 num;
 	char __iomem *base;
 	char __iomem *wb_base;
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	resource_size_t physical_base;
+#endif
+
 	u32 ref_cnt;
 	int power_state;
 
-	u32 panel_ndx;
 	u32 intf_num;
 	u32 intf_type;
 
@@ -186,6 +196,10 @@ struct mdss_mdp_ctl {
 	struct mdss_mdp_perf_params cur_perf;
 	struct mdss_mdp_perf_params new_perf;
 	u32 perf_transaction_status;
+	bool perf_release_ctl_bw;
+
+	bool traffic_shaper_enabled;
+	u32  traffic_shaper_mdp_clk;
 
 	struct mdss_data_type *mdata;
 	struct msm_fb_data_type *mfd;
@@ -298,6 +312,7 @@ struct pp_hist_col_info {
 	u32 hist_cnt_time;
 	u32 frame_cnt;
 	struct completion comp;
+	struct completion first_kick;
 	u32 data[HIST_V_SIZE];
 	struct mutex hist_mutex;
 	spinlock_t hist_lock;
@@ -407,7 +422,6 @@ struct mdss_mdp_pipe {
 	u8 blend_op;
 	u8 overfetch_disable;
 	u32 transp;
-	u8 has_buf;
 	u32 bg_color;
 	u32 hscl_en;
 
@@ -470,13 +484,43 @@ struct mdss_overlay_private {
 	struct mdss_mdp_vsync_handler vsync_retire_handler;
 	struct work_struct retire_work;
 	int retire_cnt;
+	bool kickoff_released;
 };
 
 struct mdss_mdp_commit_cb {
 	void *data;
-	int (*commit_cb_fnc) (enum mdp_commit_state_type commit_state,
+	int (*commit_cb_fnc) (enum mdp_commit_stage_type commit_state,
 		void *data);
 };
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+struct mdss_mdp_cmd_ctx {
+	struct mdss_mdp_ctl *ctl;
+	u32 pp_num;
+	u8 ref_cnt;
+	struct completion stop_comp;
+	wait_queue_head_t pp_waitq;
+	struct list_head vsync_handlers;
+	int panel_power_state;
+	atomic_t koff_cnt;
+	int clk_enabled;
+	int vsync_enabled;
+	int rdptr_enabled;
+	int do_notifier;
+	struct mutex clk_mtx;
+	spinlock_t clk_lock;
+#if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OCTA_CMD_FHD_FA2_PT_PANEL)
+	spinlock_t te_lock;
+#endif
+	spinlock_t koff_lock;
+	struct work_struct clk_work;
+	struct work_struct pp_done_work;
+	atomic_t pp_done_cnt;
+	struct mdss_panel_recovery recovery;
+	struct mdss_mdp_cmd_ctx *sync_ctx;	/* for left + right, partial update */
+	u32 pp_timeout_report_cnt;
+};
+#endif
 
 /**
  * enum mdss_screen_state - Screen states that MDP can be forced into
@@ -596,6 +640,13 @@ static inline void mdss_update_sd_client(struct mdss_data_type *mdata,
 		atomic_add_unless(&mdss_res->sd_client_count, -1, 0);
 }
 
+static inline struct clk *mdss_mdp_get_clk(u32 clk_idx)
+{
+	if (clk_idx < MDSS_MAX_CLK)
+		return mdss_res->mdp_clk[clk_idx];
+	return NULL;
+}
+
 static inline bool mdss_mdp_ctl_is_power_off(struct mdss_mdp_ctl *ctl)
 {
 	return mdss_panel_is_power_off(ctl->power_state);
@@ -618,8 +669,6 @@ static inline bool mdss_mdp_ctl_is_power_on_lp(struct mdss_mdp_ctl *ctl)
 }
 
 irqreturn_t mdss_mdp_isr(int irq, void *ptr);
-int mdss_iommu_attach(struct mdss_data_type *mdata);
-int mdss_iommu_dettach(struct mdss_data_type *mdata);
 void mdss_mdp_irq_clear(struct mdss_data_type *mdata,
 		u32 intr_type, u32 intf_num);
 int mdss_mdp_irq_enable(u32 intr_type, u32 intf_num);
@@ -682,6 +731,7 @@ int mdss_mdp_perf_bw_check_pipe(struct mdss_mdp_perf_params *perf,
 int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	struct mdss_mdp_perf_params *perf, struct mdss_rect *roi,
 	bool apply_fudge, bool is_single_layer);
+u32 mdss_mdp_get_mdp_clk_rate(struct mdss_data_type *mdata);
 int mdss_mdp_ctl_notify(struct mdss_mdp_ctl *ctl, int event);
 void mdss_mdp_ctl_notifier_register(struct mdss_mdp_ctl *ctl,
 	struct notifier_block *notifier);
@@ -799,7 +849,7 @@ void mdss_mdp_data_calc_offset(struct mdss_mdp_data *data, u16 x, u16 y,
 	struct mdss_mdp_plane_sizes *ps, struct mdss_mdp_format_params *fmt);
 struct mdss_mdp_format_params *mdss_mdp_get_format_params(u32 format);
 int mdss_mdp_data_get(struct mdss_mdp_data *data, struct msmfb_data *planes,
-	int num_planes, u32 flags);
+		int num_planes, u32 flags);
 int mdss_mdp_data_map(struct mdss_mdp_data *data);
 void mdss_mdp_data_free(struct mdss_mdp_data *data);
 

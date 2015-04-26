@@ -519,7 +519,6 @@ static ssize_t max77828_flash_show(struct device *dev,
 
     return snprintf(buf, sizeof(temp_print), "%s", temp_print);
 }
-
 static ssize_t max77828_flash(struct device *dev,
                               struct device_attribute *attr, const char *buf, size_t size)
 {
@@ -555,7 +554,6 @@ static ssize_t max77828_flash(struct device *dev,
 
     return ret;
 }
-
 static DEVICE_ATTR(rear_flash, S_IWUSR|S_IWGRP|S_IROTH,
                    max77828_flash_show, max77828_flash);
 
@@ -659,6 +657,7 @@ static int max77828_led_probe(struct platform_device *pdev)
     (void) debugfs_create_file("max77828-led-regs", S_IRUGO, NULL,
                                (void *)max77828, &max77828_debugfs_fops);
 #endif
+
     if (!IS_ERR(camera_class)) {
         flash_dev = device_create(camera_class, NULL, 0, led_datas[0], "flash");
         if (flash_dev < 0)
@@ -699,14 +698,14 @@ static int max77828_led_remove(struct platform_device *pdev)
     }
     kfree(led_datas);
     kfree(fdata);
-
     device_remove_file(flash_dev, &dev_attr_rear_flash);
 #ifdef CONFIG_LEDS_SEPERATE_MOVIE_FLASH
     device_remove_file(flash_dev, &dev_attr_movie_brightness);
 #endif
+
     device_destroy(camera_class, 0);
     class_destroy(camera_class);
-    return 0;
+return 0;
 }
 
 void max77828_led_shutdown(struct device *dev)

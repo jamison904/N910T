@@ -689,14 +689,38 @@ void wcd9xxx_restore_registers(struct snd_soc_codec *codec,
 }
 EXPORT_SYMBOL(wcd9xxx_restore_registers);
 
+static void wcd9xxx_dynamic_bypass_buck_ctrl_lo(struct snd_soc_codec *cdc,
+						bool enable)
+{
+	int i;
+	const struct wcd9xxx_reg_mask_val reg_set[] = {
+		{WCD9XXX_A_BUCK_MODE_3, (0x1 << 3), (enable << 3)},
+		{WCD9XXX_A_BUCK_MODE_5, enable ? 0xFF : 0x02, 0x02},
+		{WCD9XXX_A_BUCK_MODE_5, 0x1, 0x01}
+	};
+
+	if (!enable) {
+		snd_soc_update_bits(cdc, WCD9XXX_A_BUCK_MODE_1,
+					(0x1 << 3), 0x00);
+		snd_soc_update_bits(cdc, WCD9XXX_A_BUCK_MODE_4,
+					0xFF, BUCK_VREF_2V);
+	}
+	for (i = 0; i < ARRAY_SIZE(reg_set); i++)
+		snd_soc_update_bits(cdc, reg_set[i].reg, reg_set[i].mask,
+							reg_set[i].val);
+
+	/* 50us sleep is reqd. as per the class H HW design sequence */
+	usleep_range(BUCK_SETTLE_TIME_US, BUCK_SETTLE_TIME_US+10);
+}
+
 static void wcd9xxx_dynamic_bypass_buck_ctrl(struct snd_soc_codec *cdc,
 						bool enable)
 {
 	int i;
 	const struct wcd9xxx_reg_mask_val reg_set[] = {
 		{WCD9XXX_A_BUCK_MODE_3, (0x1 << 3), (enable << 3)},
-		{WCD9XXX_A_BUCK_MODE_5, (0x1 << 1), (enable << 1)},
-		{WCD9XXX_A_BUCK_MODE_5, 0x1, enable}
+		{WCD9XXX_A_BUCK_MODE_5, (0x1 << 1), ((!enable) << 1)},
+		{WCD9XXX_A_BUCK_MODE_5, 0x1, !enable}
 	};
 	if (!enable) {
 		snd_soc_update_bits(cdc, WCD9XXX_A_BUCK_MODE_1,
@@ -961,7 +985,7 @@ static void wcd9xxx_clsh_state_hph_lo(struct snd_soc_codec *codec,
 	if (is_enable) {
 		if ((clsh_d->state == WCD9XXX_CLSH_STATE_LO) ||
 			(req_state == WCD9XXX_CLSH_STATE_LO)) {
-			wcd9xxx_dynamic_bypass_buck_ctrl(codec, false);
+			wcd9xxx_dynamic_bypass_buck_ctrl_lo(codec, false);
 			wcd9xxx_enable_buck(codec, clsh_d, true);
 			wcd9xxx_set_fclk_get_ncp(codec, clsh_d,
 						NCP_FCLK_LEVEL_8);
@@ -983,7 +1007,7 @@ static void wcd9xxx_clsh_state_hph_lo(struct snd_soc_codec *codec,
 		case WCD9XXX_CLSH_STATE_LO:
 			snd_soc_update_bits(codec, WCD9XXX_A_NCP_STATIC,
 						0x20, 0x00);
-			wcd9xxx_dynamic_bypass_buck_ctrl(codec, true);
+			wcd9xxx_dynamic_bypass_buck_ctrl_lo(codec, true);
 			break;
 		case WCD9XXX_CLSH_STATE_HPHL:
 			wcd9xxx_clsh_comp_req(codec, clsh_d,
@@ -1122,7 +1146,7 @@ static void wcd9xxx_clsh_state_ear(struct snd_soc_codec *codec,
 		dev_dbg(codec->dev, "%s: stub fallback to ear\n", __func__);
 		wcd9xxx_set_fclk_put_ncp(codec, clsh_d, NCP_FCLK_LEVEL_8);
 		wcd9xxx_enable_buck(codec, clsh_d, false);
-		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_EAR, true);
+		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_EAR, false);
 		wcd9xxx_chargepump_request(codec, false);
 		wcd9xxx_enable_clsh_block(codec, clsh_d, false);
 	}

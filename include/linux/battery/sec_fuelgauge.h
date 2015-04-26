@@ -45,7 +45,7 @@ struct sec_fuelgauge_reg_data {
 
 struct sec_fuelgauge_info {
 	struct i2c_client		*client;
-	sec_battery_platform_data_t *pdata;
+	sec_fuelgauge_platform_data_t *pdata;
 	struct power_supply		psy_fg;
 	struct delayed_work isr_work;
 

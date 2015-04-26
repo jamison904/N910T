@@ -19,7 +19,6 @@ config ARM
 	select GENERIC_STRNCPY_FROM_USER
 	select GENERIC_STRNLEN_USER
 	select HARDIRQS_SW_RESEND
-	select HAVE_AOUT
 	select HAVE_ARCH_JUMP_LABEL if !XIP_KERNEL
 	select HAVE_ARCH_KGDB
 	select HAVE_ARCH_SECCOMP_FILTER
@@ -1408,7 +1407,6 @@ config PERFMAP
 endmenu
 
 source "arch/arm/common/Kconfig"
-source "arch/arm/hotplug/Kconfig"
 
 menu "Bus support"
 

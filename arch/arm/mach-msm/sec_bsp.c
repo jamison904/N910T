@@ -48,6 +48,8 @@ enum boot_events_type {
 	PLATFORM_END_INIT_AND_LOOP,
 	PLATFORM_BOOT_COMPLETE,
 	PLATFORM_ENABLE_SCREEN,
+	PLATFORM_VOICE_SVC,
+	PLATFORM_DATA_SVC,
 };
 
 static struct boot_event boot_events[] = {
@@ -59,12 +61,14 @@ static struct boot_event boot_events[] = {
 	{PLATFORM_START_PRELOAD_CLASSES,"!@Boot: beginofpreloadClasses()",0},
 	{PLATFORM_END_PRELOAD_RESOURCES,"!@Boot: End of preloadResources()",0},
 	{PLATFORM_END_PRELOAD_CLASSES,"!@Boot: EndofpreloadClasses()",0},
-	{PLATFORM_START_INIT_AND_LOOP,"!@Boot: Start initAndLoop",0},
+	{PLATFORM_START_INIT_AND_LOOP,"!@Boot: Entered the Android system server!",0},
 	{PLATFORM_START_PACKAGEMANAGERSERVICE,"!@Boot: Start PackageManagerService",0},
 	{PLATFORM_END_PACKAGEMANAGERSERVICE,"!@Boot: End PackageManagerService",0},
-	{PLATFORM_END_INIT_AND_LOOP,"!@Boot: End initAndLoop",0},
+	{PLATFORM_END_INIT_AND_LOOP,"!@Boot: Loop forever",0},
 	{PLATFORM_BOOT_COMPLETE,"!@Boot: bootcomplete",0},
 	{PLATFORM_ENABLE_SCREEN,"!@Boot: Enabling Screen!",0},
+	{PLATFORM_VOICE_SVC,"!@Boot: Voice SVC is acquired",0},
+	{PLATFORM_DATA_SVC,"!@Boot: Data SVC is acquired",0},
 	{0,NULL,0},
 };
 
@@ -82,7 +86,7 @@ static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 
 	while(boot_events[i].string != NULL)
 	{
-		seq_printf(m,"%-35s : %5d    %5d\n",boot_events[i].string,
+		seq_printf(m,"%-43s : %5d    %5d\n",boot_events[i].string,
 				boot_events[i].time*1000/32768,	delta);
 		delta = boot_events[i+1].time*1000/32768 - \
 			boot_events[i].time*1000/32768;

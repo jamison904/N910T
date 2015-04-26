@@ -45,6 +45,10 @@
 #define BATTERY_SAVING_MODE
 #define WACOM_CONNECTION_CHECK
 
+#ifdef CONFIG_SEC_TBLTE_PROJECT
+#define WACOM_MAINSCREEN_DISABLE
+#endif
+
 #ifdef BATTERY_SAVING_MODE
 #ifndef WACOM_PEN_DETECT
 #define WACOM_PEN_DETECT
@@ -80,13 +84,18 @@
 
 /* { 0x1F, 0xAA, 0xBB, 0xCC, 0xDD} : 0x1F is fixed value. */
 #ifdef CONFIG_SEC_TRLTE_PROJECT
+#if defined(CONFIG_MACH_TRLTE_ATT) || defined(CONFIG_MACH_TRLTE_TMO)
 #define WACOM_FW_NAME_W9012		"epen/W9012_tr.bin"
-#define WACOM_FW_CHECKSUM		{ 0x1F, 0x26, 0xE7, 0x61, 0xE6, } /* ver 0x0234 */
+#define WACOM_FW_CHECKSUM		{ 0x1F, 0xEE, 0x3C, 0x80, 0x41, } /* ver 0x0237 */
+#else
+#define WACOM_FW_NAME_W9012		"epen/W9012_tr_239.bin"
+#define WACOM_FW_CHECKSUM		{ 0x1F, 0x76, 0x4E, 0x9B, 0x88, } /* ver 0x0239 */
+#endif
 #undef USE_REDUCE_QUERY_TIME
 
 #else // CONFIG_SEC_TBLTE_PROJECT
 #define WACOM_FW_NAME_W9012		"epen/W9012_tb.bin"
-#define WACOM_FW_CHECKSUM		{ 0x1F, 0xE8, 0x3A, 0x56, 0xFE, } /* ver 0x0228 */
+#define WACOM_FW_CHECKSUM		{ 0x1F, 0x0C, 0xF6, 0x6C, 0x4A, } /* ver 0x024B */
 #undef USE_REDUCE_QUERY_TIME
 #endif
 
@@ -287,7 +296,8 @@ struct wacom_i2c {
 	void (*wacom_i2c_disable)(struct wacom_i2c *);
 	void (*wacom_i2c_enable)(struct wacom_i2c *);
 	void (*wacom_enable_irq)(struct wacom_i2c *, bool);
-	
+
+	struct wake_lock wakelock_pen_insert;
 	struct wake_lock wakelock;
 };
 
@@ -304,4 +314,5 @@ extern int ldi_fps(unsigned int input_fps);
 extern int wacom_factory_probe(struct device *dev);
 extern void wacom_factory_release(struct device *dev);
 extern int get_lcd_attached(void);
+extern int wacom_i2c_modecheck(struct wacom_i2c *wac_i2c);
 #endif /* _LINUX_WACOM_I2C_H */

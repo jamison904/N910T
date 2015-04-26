@@ -478,6 +478,8 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 	uint64_t now;
 	struct mdm_ctrl *mdm = get_esoc_clink_data(esoc);
 	struct device *dev = mdm->dev;
+	int max_spin = 20;
+	int ret;
 
 	switch (notify) {
 	case ESOC_IMG_XFER_DONE:
@@ -543,13 +545,29 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 		}
 		break;
 	case ESOC_PRIMARY_REBOOT:
-		dev_info(mdm->dev, "Triggering mdm cold reset");
+		dev_info(mdm->dev, "Triggering mdm cold reset..");
 		mdm->ready = 0;
+		while (gpio_get_value(MDM_GPIO(mdm, MDM2AP_STATUS)) && max_spin--) {
+			msleep(100);
+		}
+		dev_info(mdm->dev, "waiting is done. spin_count: %d\n", max_spin);
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
 				!!mdm->soft_reset_inverted);
 		mdelay(300);
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
 				!mdm->soft_reset_inverted);
+		break;
+	case ESOC_FORCE_CPCRASH:
+		dev_err(mdm->dev, "Force CP Crash\n");
+		gpio_set_value(MDM_GPIO(mdm, AP2MDM_ERRFATAL), 1);
+		break;
+	case ESOC_DIAG_DISABLE:
+		dev_info(mdm->dev, "Send diag_disable noti\n");
+		ret = sysmon_send_diag_disable_noti(mdm->sysmon_subsys_id);
+		if (ret < 0)
+			dev_err(mdm->dev, "sending diag_disable noti is failed, ret = %d\n", ret);
+		else
+			dev_info(mdm->dev, "sending diag_disable noti is succeed.\n");
 		break;
 	};
 	return;

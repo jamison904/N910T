@@ -17,7 +17,6 @@
 
 #include "apq8084-sii8620-mhl3-trlte-r01.dtsi"
 #include "apq8084-sec-trlte-r02.dtsi"
-#include "dsi_panel_samsung_wqhd_dual_cmd_S6E3HA2X01.dtsi"
 #include "apq8084-sec-trlte-battery-r01.dtsi"
 #include "apq8084-sec-isdb-trlte-r00.dtsi"
 / {

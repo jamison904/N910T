@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfg80211.h 500595 2014-09-04 17:39:18Z $
+ * $Id: wl_cfg80211.h 519245 2014-12-05 12:54:10Z $
  */
 
 /**
@@ -653,6 +653,7 @@ struct bcm_cfg80211 {
 #if defined(CUSTOMER_HW4) && defined(WL_CFG80211_P2P_DEV_IF)
 	bool down_disc_if;
 #endif /* CUSTOMER_HW4 && WL_CFG80211_P2P_DEV_IF */
+	bool need_wait_afrx;
 };
 
 

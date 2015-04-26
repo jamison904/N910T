@@ -67,7 +67,10 @@ Optional properties:
 					to specify the memory reserved for the splash
 					screen using the qcom,memblock-reserve binding
 					for the framebuffer device attached to the panel.
-- qcom,mdss-dsi-panel-broadcast-mode:	Boolean used to enable broadcast mode.
+- qcom,cmd-sync-wait-broadcast:		Boolean used to broadcast dcs command to panels.
+- qcom,cmd-sync-wait-trigger:		Boolean used to identify the which panel in a dual-dsi
+					configuration will be used to trigger the DCS commands.
+					This flag should be set only for one of the two panels.
 - qcom,mdss-dsi-fbc-enable:		Boolean used to enable frame buffer compression mode.
 - qcom,mdss-dsi-fbc-bpp:		Compressed bpp supported by the panel.
 					Specified color order is used as default value.
@@ -287,6 +290,8 @@ Optional properties:
 - qcom,partial-update-roi-merge:	Boolean indicates roi combination is need
 					and function has been provided for dcs
 					2A/2B command.
+- qcom,dcs-cmd-by-left:			Boolean to indicate that dcs command are sent
+					through the left DSI controller only in a dual-dsi configuration
 - qcom,mdss-dsi-lp11-init:		Boolean used to enable the DSI clocks and data lanes (low power 11)
 					before issuing hardware reset line.
 - qcom,mdss-dsi-init-delay-us:		Delay in microseconds(us) before performing any DSI activity in lp11
@@ -313,7 +318,8 @@ Example:
 		qcom,mdss-dsi-bpp = <24>;
 		qcom,mdss-dsi-pixel-packing = <0>;
 		qcom,mdss-dsi-panel-destination = "display_1";
-		qcom,mdss-dsi-panel-broadcast-mode;
+		qcom,cmd-sync-wait-broadcast;
+		qcom,cmd-sync-wait-trigger;
 		qcom,mdss-dsi-fbc-enable;
 		qcom,mdss-dsi-fbc-bpp = <0>;
 		qcom,mdss-dsi-fbc-packing = <0>;
@@ -399,6 +405,7 @@ Example:
 		qcom,mdss-tear-check-frame-rate = <6000>;
 		qcom,mdss-dsi-reset-sequence = <1 2>, <0 10>, <1 10>;
 		qcom,partial-update-enabled;
+		qcom,dcs-cmd-by-left;
 		qcom,mdss-dsi-lp11-init;
 		qcom,mdss-dsi-init-delay-us = <100>;
 		mdss-dsi-rx-eot-ignore;

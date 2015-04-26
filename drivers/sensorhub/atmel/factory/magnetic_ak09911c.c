@@ -341,7 +341,7 @@ Retry_selftest:
 		iResult[1] = 0;
 
 	if ((iResult[1] == -1) && (iSpecOutRetries++ < 5)) {
-		pr_err("[SSP] %s, selftest spec out. Retry = %d", __func__,
+		pr_err("[SSP] %s, selftest spec out. Retry = %d\n", __func__,
 			iSpecOutRetries);
 		goto Retry_selftest;
 	}

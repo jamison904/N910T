@@ -14,6 +14,7 @@
 #include <linux/compat.h>
 #include <linux/mount.h>
 #include <linux/file.h>
+#include <linux/blkdev.h>
 #include <asm/uaccess.h>
 #include "ext4_jbd2.h"
 #include "ext4.h"
@@ -77,8 +78,10 @@ static void swap_inode_data(struct inode *inode1, struct inode *inode2)
 	memswap(ei1->i_data, ei2->i_data, sizeof(ei1->i_data));
 	memswap(&ei1->i_flags, &ei2->i_flags, sizeof(ei1->i_flags));
 	memswap(&ei1->i_disksize, &ei2->i_disksize, sizeof(ei1->i_disksize));
-	memswap(&ei1->i_es_tree, &ei2->i_es_tree, sizeof(ei1->i_es_tree));
-	memswap(&ei1->i_es_lru_nr, &ei2->i_es_lru_nr, sizeof(ei1->i_es_lru_nr));
+	ext4_es_remove_extent(inode1, 0, EXT_MAX_BLOCKS);
+	ext4_es_remove_extent(inode2, 0, EXT_MAX_BLOCKS);
+	ext4_es_lru_del(inode1);
+	ext4_es_lru_del(inode2);
 
 	isize = i_size_read(inode1);
 	i_size_write(inode1, i_size_read(inode2));
@@ -143,7 +146,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	handle = ext4_journal_start(inode_bl, EXT4_HT_MOVE_EXTENTS, 2);
 	if (IS_ERR(handle)) {
 		err = -EINVAL;
-		goto swap_boot_out;
+		goto journal_err_out;
 	}
 
 	/* Protect extent tree against block allocations via delalloc */
@@ -201,6 +204,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 
 	ext4_double_up_write_data_sem(inode, inode_bl);
 
+journal_err_out:
 	ext4_inode_resume_unlocked_dio(inode);
 	ext4_inode_resume_unlocked_dio(inode_bl);
 
@@ -592,6 +596,39 @@ group_add_out:
 resizefs_out:
 		ext4_resize_end(sb);
 		return err;
+	}
+
+	case FSECTRIM:
+	{
+		struct request_queue *q = bdev_get_queue(sb->s_bdev);
+		struct fstrim_range range;
+		int ret = 0;
+
+		if (!capable(CAP_SYS_ADMIN))
+			return -EPERM;
+
+		if (!blk_queue_discard(q))
+			return -EOPNOTSUPP;
+
+		if (EXT4_HAS_RO_COMPAT_FEATURE(sb,
+				   EXT4_FEATURE_RO_COMPAT_BIGALLOC)) {
+			ext4_msg(sb, KERN_ERR,
+				 "FSECTRIM not supported with bigalloc");
+			return -EOPNOTSUPP;
+		}
+
+		if (copy_from_user(&range, (struct fstrim_range __user *)arg,
+			sizeof(range)))
+			return -EFAULT;
+
+		range.minlen = max((unsigned int)range.minlen,
+				   q->limits.discard_granularity);
+
+		ret =  blkdev_issue_discard(sb->s_bdev, range.start, range.len, GFP_NOFS, 1);
+		if (ret < 0)
+			return ret;
+
+		return 0;
 	}
 
 	case FITRIM:

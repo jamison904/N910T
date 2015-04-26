@@ -29,8 +29,9 @@
 #include <crypto/hash.h>
 #include <crypto/md5.h>
 #include <crypto/algapi.h>
+#ifdef CONFIG_CRYPTO_DEV_QCRYPTO
 #include <mach/qcrypto.h>
-
+#endif
 #include <linux/device-mapper.h>
 
 
@@ -46,6 +47,10 @@
 
 #define DM_REQ_CRYPT_ERROR -1
 #define DM_REQ_CRYPT_ERROR_AFTER_PAGE_MALLOC -2
+
+#ifdef CONFIG_CRYPTO_DEV_QCRYPTO
+#define FDE_CRYPTO_DEVICE 0
+#endif
 
 struct req_crypt_result {
 	struct completion completion;
@@ -197,6 +202,13 @@ static void req_cryptd_crypt_read_convert(struct req_dm_crypt_io *io)
 					req_crypt_cipher_complete, &result);
 	init_completion(&result.completion);
 #ifdef CONFIG_CRYPTO_DEV_QCRYPTO
+	err = qcrypto_cipher_set_device(req, FDE_CRYPTO_DEVICE);
+	if (err != 0) {
+		DMERR("%s qcrypto_cipher_set_device failed with err %d\n",
+				__func__, err);
+		error = DM_REQ_CRYPT_ERROR;
+		goto ablkcipher_req_alloc_failure;
+	}
 	qcrypto_cipher_set_flag(req,
 		QCRYPTO_CTX_USE_PIPE_KEY | QCRYPTO_CTX_XTS_DU_SIZE_512B);
 #endif
@@ -325,6 +337,13 @@ static void req_cryptd_crypt_write_convert(struct req_dm_crypt_io *io)
 
 	init_completion(&result.completion);
 #ifdef CONFIG_CRYPTO_DEV_QCRYPTO
+	error = qcrypto_cipher_set_device(req, FDE_CRYPTO_DEVICE);
+	if (error != 0) {
+		DMERR("%s qcrypto_cipher_set_device failed with error %d\n",
+				__func__, error);
+		error = DM_REQ_CRYPT_ERROR;
+		goto ablkcipher_req_alloc_failure;
+	}
 	qcrypto_cipher_set_flag(req,
 		QCRYPTO_CTX_USE_PIPE_KEY | QCRYPTO_CTX_XTS_DU_SIZE_512B);
 #endif

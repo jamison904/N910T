@@ -194,24 +194,28 @@ void cypress_power_onoff(struct cypress_touchkey_info *info, int onoff)
 	}
 
 	if (onoff) {
-		if (!regulator_is_enabled(info->vcc_en)) {
+		if (!info->init_done || !regulator_is_enabled(info->vcc_en)) {
 			rc = regulator_enable(info->vcc_en);
 			if (rc) {
 				dev_err(&info->client->dev,
 					"Regulator vcc_en enable failed rc=%d\n", rc);
 				return;
 			}
+		} else {
+			dev_err(&info->client->dev, "%s: 1p8 is enabled\n", __func__);
 		}
 
 	/* block the duplicated case */
 		if(!info->pdata->ldo_flag) {
-			if (!regulator_is_enabled(info->vdd_led)) {
+			if (!info->init_done || !regulator_is_enabled(info->vdd_led)) {
 				rc = regulator_enable(info->vdd_led);
 				if (rc) {
 					dev_err(&info->client->dev,
 						"Regulator vdd_led enable failed rc=%d\n", rc);
 					return;
 				}
+			} else {
+				dev_err(&info->client->dev, "%s: vdd is enabled\n", __func__);
 			}
 		}
 	} else {
@@ -222,6 +226,8 @@ void cypress_power_onoff(struct cypress_touchkey_info *info, int onoff)
 					"Regulator vcc_en disable failed rc=%d\n", rc);
 				return;
 			}
+		} else {
+			dev_err(&info->client->dev, "%s: 1p8 is disabled\n", __func__);
 		}
 
 		if(!info->pdata->ldo_flag) {
@@ -232,6 +238,8 @@ void cypress_power_onoff(struct cypress_touchkey_info *info, int onoff)
 						"Regulator vdd_led disable failed rc=%d\n", rc);
 					return;
 				}
+			} else {
+				dev_err(&info->client->dev, "%s: vdd is disabled\n", __func__);
 			}
 		}
 	}
@@ -2275,8 +2283,9 @@ static int cypress_touchkey_probe(struct i2c_client *client,
 	info->is_powering_on = true;
 	cypress_power_onoff(info, 1);
 
-	msleep(40);
-	
+/** regulator enabled in pmic init
+//	msleep(40);
+*/
 	info->enabled = true;
 	ret = tkey_i2c_check(info);
 	if (ret < 0) {
@@ -2403,6 +2412,7 @@ static int cypress_touchkey_probe(struct i2c_client *client,
 #endif
 
 	info->is_powering_on = false;
+	info->init_done = true;
 
 	dev_info(&info->client->dev, "%s: done\n", __func__);
 	return 0;

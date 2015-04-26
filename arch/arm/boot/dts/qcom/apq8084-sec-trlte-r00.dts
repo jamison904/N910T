@@ -19,7 +19,6 @@
 
 #include "apq8084-sii8620-mhl3-trlte-r00.dtsi"
 #include "apq8084-sec-trlte-r00.dtsi"
-#include "dsi_panel_samsung_wqhd_cmd_s6e3ha0_dualdsi.dtsi"
 #include "apq8084-sec-trlte-battery.dtsi"
 / {
 	model = "APQ 8084 v1.1, SAMSUNG trlte Project Rev00";

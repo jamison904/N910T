@@ -417,6 +417,10 @@ static inline void copy_cap_prop(
 		struct vidc_hal_session_init_done *sess_init_done)
 {
 	struct hal_capability_supported *out = NULL;
+	if (!in) {
+		dprintk(VIDC_ERR, "Invalid input for supported capabilties\n");
+		return;
+	}
 	switch (in->capability_type) {
 	case HFI_CAPABILITY_FRAME_WIDTH:
 		out = &sess_init_done->width;
@@ -453,9 +457,13 @@ static inline void copy_cap_prop(
 	case HFI_CAPABILITY_HIER_P_NUM_ENH_LAYERS:
 		out = &sess_init_done->hier_p;
 		break;
+
+	case HFI_CAPABILITY_ENC_LTR_COUNT:
+		out = &sess_init_done->ltr_count;
+		break;
 	}
 
-	if (in && out) {
+	if (out) {
 		out->capability_type =
 			(enum hal_capability)in->capability_type;
 		out->min = in->min;
@@ -589,6 +597,11 @@ enum vidc_status hfi_process_sess_init_done_prop_read(
 			dprintk(VIDC_DBG, "prop->profile_count: %d\n",
 				prop->profile_count);
 			prop_count = prop->profile_count;
+			if (prop_count > MAX_PROFILE_COUNT) {
+				prop_count = MAX_PROFILE_COUNT;
+				dprintk(VIDC_WARN,
+					"prop count exceeds max profile count\n");
+			}
 			while (prop_count) {
 				ptr++;
 				prop_level = (struct hfi_profile_level *) ptr;

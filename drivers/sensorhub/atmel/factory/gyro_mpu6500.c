@@ -315,7 +315,7 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 	}
 
 	data->uTimeOutCnt = 0;
-	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d", chTempBuf[0], chTempBuf[1],
+	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d\n", chTempBuf[0], chTempBuf[1],
 		chTempBuf[2], chTempBuf[3], chTempBuf[4], chTempBuf[5], chTempBuf[6],
 		chTempBuf[7], chTempBuf[8], chTempBuf[9], chTempBuf[10], chTempBuf[11]);
 

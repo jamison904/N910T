@@ -469,7 +469,11 @@ void max86900_mode_enable(struct max86900_device_data *data, int onoff)
 {
 	int err;
 	if (onoff) {
-//		if (data->hrm_vdd_en > 0) 
+		if (data->is_enable) {
+			pr_err("%s - already enabled !!!\n", __func__);
+			goto exit;
+		}
+		data->is_enable = 1;
 		{
 			err = max86900_regulator_onoff(data, HRM_LDO_ON);
 			if (err < 0)
@@ -484,20 +488,23 @@ void max86900_mode_enable(struct max86900_device_data *data, int onoff)
 		err = max86900_enable(data);
 		if (err != 0)
 			pr_err("max86900_enable err : %d\n", err);
-		data->is_enable = 1;
 	} else {
+		if (!(data->is_enable)) {
+			pr_err("%s - already disabled !!!\n", __func__);
+			goto exit;
+		}
+		data->is_enable = 0;
 		err = max86900_disable(data);
 		if (err != 0)
 			pr_err("max86900_disable err : %d\n", err);
-//		if (data->hrm_vdd_en > 0)
 		{
 			err = max86900_regulator_onoff(data, HRM_LDO_OFF);
 			if (err < 0)
 				pr_err("%s max86900_regulator_off fail err = %d\n",
 					__func__, err);
 		}
-		data->is_enable = 0;
 	}
+exit:
 	pr_info("%s - part_type = %u, onoff = %d\n", __func__, data->part_type, onoff);
 }
 

@@ -55,7 +55,7 @@ struct max17048_fuelgauge_battery_data_t {
 
 struct max17048_fuelgauge_data {
 	struct i2c_client		*client;
-	sec_battery_platform_data_t *pdata;
+	sec_fuelgauge_platform_data_t *pdata;
 	struct max17048_fuelgauge_battery_data_t *battery_data;
 	struct power_supply		psy_fg;
 	struct delayed_work isr_work;

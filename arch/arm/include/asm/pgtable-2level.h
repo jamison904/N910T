@@ -145,6 +145,7 @@
 #define L_PTE_MT_DEV_NONSHARED	(_AT(pteval_t, 0x0c) << 2)	/* 1100 */
 #define L_PTE_MT_DEV_WC		(_AT(pteval_t, 0x09) << 2)	/* 1001 */
 #define L_PTE_MT_DEV_CACHED	(_AT(pteval_t, 0x0b) << 2)	/* 1011 */
+#define L_PTE_MT_VECTORS	(_AT(pteval_t, 0x0f) << 2)	/* 1111 */
 #define L_PTE_MT_MASK		(_AT(pteval_t, 0x0f) << 2)
 
 #ifndef __ASSEMBLY__
@@ -159,6 +160,8 @@
 #define pud_present(pud)	(1)
 #define pud_clear(pudp)		do { } while (0)
 #define set_pud(pud,pudp)	do { } while (0)
+
+extern int boot_mode_security;
 
 static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 {
@@ -181,6 +184,11 @@ static inline void copy_pmd(pmd_t *pmdpd, pmd_t *pmdps)
 	unsigned long tima_wr_out;
 	unsigned long pmd_base;
 
+	if (tima_is_pg_protected((unsigned long) pmdpd) == 0 && boot_mode_security == 0) {
+		pmdpd[0] = pmdps[0];
+		pmdpd[1] = pmdps[1];
+		flush_pmd_entry(pmdpd);
+	} else {
 	cpu_dcache_clean_area(pmdpd, 8);
 	__asm__ __volatile__ (
 		"stmfd  sp!,{r0, r8-r11}\n"
@@ -219,6 +227,7 @@ static inline void copy_pmd(pmd_t *pmdpd, pmd_t *pmdps)
 		tima_verify_state(pmd_base + 0x1000, pmdps[0], 1, 0);
 		tima_verify_state(pmd_base + 0x2000, pmdps[0], 1, 0);
 		tima_verify_state(pmd_base + 0x3000, pmdps[0], 1, 0);
+	}
 }
 #else
 #define copy_pmd(pmdpd,pmdps)		\

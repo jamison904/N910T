@@ -26,6 +26,9 @@
 #define DEBUG
 #define SAMSUNG_ES705_FEATURE
 
+#if defined(CONFIG_MACH_TRLTE_EUR) && defined(CONFIG_SND_DSPG_DBMD2)
+extern unsigned int system_rev;
+#endif
 /*
  * Uncomment WDB_RDB_OVER_SLIMBUS
  * to enable WDB / RDB operations over SLIMBus
@@ -112,6 +115,10 @@ struct es705_api_access {
 #define NARROW_BAND	0
 #define WIDE_BAND	1
 #define NETWORK_OFFSET	21
+#define ES705_WAKE_LOCK_TIME (HZ * 1)	/* 1 sec */
+#if defined(CONFIG_SND_SOC_ES705_FOR_VOIP)
+#define NETWORK_OFFSET_VOIP	4
+#endif
 static int network_type = NARROW_BAND;
 static int extra_volume = 0;
 
@@ -192,41 +199,6 @@ const char *esxxx_mode[] = {
 
 struct snd_soc_dai_driver es705_dai[];
 
-static struct file *file_open(const char *path, int flags, int rights)
-{
-	mm_segment_t oldfs;
-	int err = 0;
-	struct file *filp = NULL;
-	oldfs = get_fs();
-	set_fs(get_ds());
-	filp = filp_open(path, flags, rights);
-	set_fs(oldfs);
-	if (IS_ERR(filp)) {
-		err = PTR_ERR(filp);
-		dev_err(es705_priv.dev, "%s:Error (%d) Opening file %s",
-				__func__, err, path);
-		return NULL;
-	}
-	return filp;
-}
-
-static inline void file_close(struct file *file)
-{
-	filp_close(file, NULL);
-}
-
-static int file_read(struct file *file, unsigned long long offset,
-		unsigned char *data, unsigned int size)
-{
-	mm_segment_t oldfs;
-	int ret;
-	oldfs = get_fs();
-	set_fs(get_ds());
-	ret = vfs_read(file, data, size, &offset);
-	set_fs(oldfs);
-	return ret;
-}
-
 static int abort_request = 0;
 static int es705_vs_load(struct es705_priv *es705);
 static int es705_write_then_read(struct es705_priv *es705,
@@ -237,9 +209,7 @@ static unsigned int es705_read(struct snd_soc_codec *codec,
 static int es705_write(struct snd_soc_codec *codec, unsigned int reg,
 		       unsigned int value);
 
-#if defined(PREVENT_CALL_MUTE_WHEN_SWITCH_NB_AND_WB)
-static void es705_restore_bwe_veq(void);
-#endif
+static void es705_restore_bwe_veq(int pre_bwe, int pre_veq);
 
 /* indexed by ES705 INTF number */
 u32 es705_streaming_cmds[4] = {
@@ -578,6 +548,12 @@ static void es705_switch_route_config(long route_index)
 	case 23 : /* RCV NS ON WB */
 	case 24 : /* SPK NS OFF WB */
 	case 25 : /* RCV NS OFF WB */
+#ifdef CONFIG_GSM_MODEM_SPRD6500
+	case 32 : /* 3Mic SPK, NB, NS On, CP2 */
+	case 33 : /* 3Mic HS, NB, NS On, CP2 */
+	case 34 : /* 3Mic SPK, NB, NS Off, CP2 */
+	case 35 : /* 3Mic HS, NB, NS Off, CP2 */
+#endif
 		es705->current_veq_preset = 1;
 		es705->current_veq = -1;
 		es705->voice_wakeup_enable = 0;
@@ -603,6 +579,17 @@ static void es705_switch_route_config(long route_index)
 								msecs_to_jiffies(es705->reroute_delay));
 #endif
 		}
+#if defined(CONFIG_SND_SOC_ES705_FOR_VOIP)
+		if ((route_config_idx == 32) || (route_config_idx == 33)) {
+				route_config_idx += NETWORK_OFFSET_VOIP;
+				dev_dbg(es705->dev,
+					"%s() adjust wideband offset\n", __func__);
+#if defined(PREVENT_CALL_MUTE_WHEN_SWITCH_NB_AND_WB)
+				schedule_delayed_work(&es705->reroute_work,
+								msecs_to_jiffies(es705->reroute_delay));
+#endif
+		}
+#endif
 	}
 	else if (network_type == NARROW_BAND) {
 		if (route_config_idx >= 0 + NETWORK_OFFSET &&
@@ -615,6 +602,17 @@ static void es705_switch_route_config(long route_index)
 								msecs_to_jiffies(es705->reroute_delay));
 #endif
 		}
+#if defined(CONFIG_SND_SOC_ES705_FOR_VOIP)
+		if ((route_config_idx == 36) || (route_config_idx == 37)) {
+				route_config_idx -= NETWORK_OFFSET_VOIP;
+				dev_dbg(es705->dev,
+					"%s() adjust wideband offset\n", __func__);
+#if defined(PREVENT_CALL_MUTE_WHEN_SWITCH_NB_AND_WB)
+				schedule_delayed_work(&es705->reroute_work,
+								msecs_to_jiffies(es705->reroute_delay));
+#endif
+		}
+#endif
 	}
 
 	dev_info(es705->dev,
@@ -1002,6 +1000,8 @@ static int es705_write_sensory_vs_keyword(void)
 static void es705_reroute(struct work_struct *w)
 {
 	struct es705_priv *es705 = &es705_priv;
+	int pre_bwe = es705->current_bwe;
+	int pre_veq = es705->current_veq;
 	int rc;
 	unsigned int value = 0;
 
@@ -1013,7 +1013,7 @@ static void es705_reroute(struct work_struct *w)
 				__func__, value, es705->internal_route_num);
 		rc = es705_write_block(es705,
 							&es705_route_configs[es705->internal_route_num][0]);
-		es705_restore_bwe_veq();
+		es705_restore_bwe_veq(pre_bwe, pre_veq);
 	}
 }
 #endif
@@ -1080,15 +1080,19 @@ static ssize_t es705_fw_version_show(struct device *dev,
 
 	memset(verbuf, 0, SIZE_OF_VERBUF);
 
-	value = es705_read(NULL, ES705_FW_FIRST_CHAR);
-	*verbuf++ = (value & 0x00ff);
-	for (idx = 0; idx < (SIZE_OF_VERBUF-2); idx++) {
-		value = es705_read(NULL, ES705_FW_NEXT_CHAR);
+	if (es705_priv.pm_state == ES705_POWER_AWAKE) {
+		value = es705_read(NULL, ES705_FW_FIRST_CHAR);
 		*verbuf++ = (value & 0x00ff);
-	}
-	/* Null terminate the string*/
-	*verbuf = '\0';
-	dev_info(dev, "Audience fw ver %s\n", versionbuffer);
+		for (idx = 0; idx < (SIZE_OF_VERBUF-2); idx++) {
+			value = es705_read(NULL, ES705_FW_NEXT_CHAR);
+			*verbuf++ = (value & 0x00ff);
+		}
+		/* Null terminate the string*/
+		*verbuf = '\0';
+		dev_info(dev, "Audience fw ver %s\n", versionbuffer);
+	} else
+		dev_info(dev, "Audience is not awake\n");
+
 	return snprintf(buf, PAGE_SIZE, "FW Version = %s\n", versionbuffer);
 }
 
@@ -1441,154 +1445,6 @@ static ssize_t es705_preset_delay_time_set(struct device *dev,
 static DEVICE_ATTR(preset_delay, 0644, es705_preset_delay_time_show, es705_preset_delay_time_set);
 #endif
 
-static ssize_t es705_veq_filter_set(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t count)
-{
-	struct es705_priv *es705 = &es705_priv;
-	struct file *fp = NULL;
-	u8 *cur = NULL;
-	int vol_step = es705->current_veq;
-	int ret = 0, i=0;
-	int filter_size = 0;
-	int input = 0;
-	u8 veq_use_case = VEQ_CT;
-
-	switch(es705->internal_route_num) {
-		case 1: /* FO_NSOn */
-		case 3: /* FO_NSOff */			
-		case 22: /* FO_WB_NSOn */						
-		case 24: /* FO_WB_NSOff */									
-			veq_use_case = VEQ_FT;
-		default:
-			break;
-	}
-
-	sscanf(buf, "%d", &input);
-
-	if (network_type == WIDE_BAND) {
-		cur = &veq_coefficients_wb[veq_use_case][vol_step][0];
-		filter_size = 0x4A;
-	} else {
-		cur = &veq_coefficients_nb[veq_use_case][vol_step][0];
-		filter_size = 0x3E;
-	}
-
-	if (input == 1) {
-		fp = file_open("/etc/filter.bin", O_RDONLY, 0);
-		if (fp) {
-			ret = file_read(fp, 0, cur, filter_size);
-
-			if (ret < filter_size)
-				dev_err(es705->dev, "%s : file read error\n", __func__);
-			else
-				dev_info(es705->dev, "%s : Success to change the values (%d): 0x%x",
-						__func__, vol_step, ret);
-			file_close(fp);
-			fp = NULL;
-		} else {
-			dev_info(es705->dev, "%s : Current filter values (%d): ", __func__, vol_step);
-
-			for (i=0; i < 10; i++)
-				dev_info(es705->dev, "0x%02x ", *cur++);
-		}
-	}else if (input == 2) {
-		dev_info(es705->dev, "%s : All filter values (%d): ", __func__, vol_step);
-
-		for (i=0; i < filter_size; i++) {
-			dev_info(es705->dev, "0x%02x ", *cur++);
-		}
-	} else
-		dev_err(es705->dev, "%s : enter the value again\n", __func__);
-
-	return count;
-}
-static DEVICE_ATTR(veq_filter, 0644, NULL, es705_veq_filter_set);
-
-static ssize_t es705_veq_max_set(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t count)
-{
-	struct es705_priv *es705 = &es705_priv;
-	u32 *cur = NULL;
-	int vol_step = es705->current_veq;
-	int i=0;
-	int size = 0;
-	int input = 0;
-	u8 veq_use_case = VEQ_CT;
-
-	switch(es705->internal_route_num) {
-		case 1: /* FO_NSOn */
-		case 3: /* FO_NSOff */			
-		case 22: /* FO_WB_NSOn */						
-		case 24: /* FO_WB_NSOff */									
-			veq_use_case = VEQ_FT;
-		default:
-			break;
-	}
-
-	sscanf(buf, "%d", &input);
-
-	if (network_type == WIDE_BAND)
-		cur = veq_max_gains_wb[veq_use_case];
-	else
-		cur = veq_max_gains_nb[veq_use_case];
-
-	size = ARRAY_SIZE(veq_max_gains_nb[veq_use_case]);
-
-	for (i=0; i < size; i++)
-		dev_info(es705->dev, "%s : max gain (%d %d): ",
-			__func__, i, (cur[i] & 0xff));
-	cur[vol_step] = 0x90180000 | (input & 0xffff);
-	dev_info(es705->dev, "%s : max gain is changed(%d %d): ",
-		__func__, vol_step, (cur[vol_step] & 0xff));
-
-	return count;
-}
-static DEVICE_ATTR(veq_max, 0644, NULL, es705_veq_max_set);
-
-static ssize_t es705_veq_adj_set(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t count)
-{
-	struct es705_priv *es705 = &es705_priv;
-	u32 *cur = NULL;
-	int vol_step = es705->current_veq;
-	int i=0;
-	int size = 0;
-	int input = 0;
-	u8 veq_use_case = VEQ_CT;
-
-	switch(es705->internal_route_num) {
-		case 1: /* FO_NSOn */
-		case 3: /* FO_NSOff */			
-		case 22: /* FO_WB_NSOn */						
-		case 24: /* FO_WB_NSOff */									
-			veq_use_case = VEQ_FT;
-		default:
-			break;
-	}
-
-	sscanf(buf, "%d", &input);
-
-	if (network_type == WIDE_BAND)
-		cur = veq_noise_estimate_adjs_wb[veq_use_case];
-	else
-		cur = veq_noise_estimate_adjs_nb[veq_use_case];
-
-	size = ARRAY_SIZE(veq_noise_estimate_adjs_nb[veq_use_case]);
-
-	for (i=0; i < size; i++)
-		dev_info(es705->dev, "%s : adj gain (%d %d): ",
-			__func__, i, (cur[i] & 0xff));
-	cur[vol_step] = 0x90180000 | (input & 0xffff);
-	dev_info(es705->dev, "%s : adj gain is changed(%d %d): ",
-		__func__, vol_step, (cur[vol_step] & 0xff));
-
-	return count;
-}
-static DEVICE_ATTR(veq_adj, 0644, NULL, es705_veq_adj_set);
-
 static struct attribute *core_sysfs_attrs[] = {
 	&dev_attr_route_status.attr,
 	&dev_attr_route.attr,
@@ -1611,9 +1467,6 @@ static struct attribute *core_sysfs_attrs[] = {
 #ifdef SAMSUNG_ES70X_BACK_TO_BACK_CMD_DELAY		
 	&dev_attr_preset_delay.attr,
 #endif
-	&dev_attr_veq_filter.attr,
-	&dev_attr_veq_max.attr,
-	&dev_attr_veq_adj.attr,
 	NULL
 };
 
@@ -1705,24 +1558,29 @@ es705_fw_download_exit:
 int es705_bootup(struct es705_priv *es705)
 {
 	int rc;
+	int fw_max_retry_cnt = 10;
 	BUG_ON(es705->standard->size == 0);
 
 	mutex_lock(&es705->pm_mutex);
 	es705->pm_state = ES705_POWER_FW_LOAD;
 	mutex_unlock(&es705->pm_mutex);
 
-	rc = es705_fw_download(es705, STANDARD);
-	if (rc) {
-		dev_err(es705->dev, "%s(): STANDARD fw download error\n",
-			__func__);
-	} else {
-		mutex_lock(&es705->pm_mutex);
-		es705->pm_state = ES705_POWER_AWAKE;
+	do {
+		rc = es705_fw_download(es705, STANDARD);
+		if (rc) {
+			dev_err(es705->dev, "%s(): STANDARD fw download error\n",
+				__func__);
+			es705_gpio_reset(es705);
+		} else {
+			mutex_lock(&es705->pm_mutex);
+			es705->pm_state = ES705_POWER_AWAKE;
 #if defined(SAMSUNG_ES705_FEATURE)
-		es705->es705_power_state = ES705_SET_POWER_STATE_NORMAL;
+			es705->es705_power_state = ES705_SET_POWER_STATE_NORMAL;
 #endif
-		mutex_unlock(&es705->pm_mutex);
-	}
+			mutex_unlock(&es705->pm_mutex);
+		}
+	} while (rc && fw_max_retry_cnt--);
+
 	return rc;
 }
 
@@ -1958,7 +1816,9 @@ static void es705_delayed_sleep(struct work_struct *w)
 {
 	int ch_tot;
 	int ports_active = (es705_priv.rx1_route_enable ||
-		es705_priv.rx2_route_enable || es705_priv.tx1_route_enable);
+					es705_priv.rx2_route_enable ||
+					es705_priv.tx1_route_enable ||
+					es705_priv.voice_wakeup_enable);
 
 #if defined(SUPPORT_DAI_3)
 	ports_active |= es705_priv.tx2_route_enable;
@@ -2233,17 +2093,9 @@ static int es705_get_control_enum(struct snd_kcontrol *kcontrol,
 static int es705_get_power_control_enum(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_value *ucontrol)
 {
-	struct soc_enum *e =
-		(struct soc_enum *)kcontrol->private_value;
-	unsigned int reg = e->reg;
 	unsigned int value;
 
-	/* Don't read if already in Sleep Mode */
-	if (es705_priv.pm_state == ES705_POWER_SLEEP)
-		value = es705_priv.es705_power_state;
-	else
-		value = es705_read(NULL, reg);
-
+	value = es705_priv.es705_power_state;
 	ucontrol->value.enumerated.item[0] = value;
 
 	return 0;
@@ -3482,14 +3334,7 @@ int es705_put_veq_block(int volume)
 	struct es705_priv *es705 = &es705_priv;
 
 	u32 cmd;
-	u32 resp;
 	int ret;
-	u8 veq_coeff_size = 0;
-	u32 fin_resp;
-	u8 count = 0;
-	u8 *wdbp = NULL;
-	u8 wr = 0;
-	int max_retry_cnt = 10;
 	u8 veq_use_case = VEQ_CT;
 
 	if (es705->pm_state != ES705_POWER_AWAKE) {
@@ -3520,6 +3365,10 @@ int es705_put_veq_block(int volume)
 		case 3: /* FO_NSOff */			
 		case 22: /* FO_WB_NSOn */						
 		case 24: /* FO_WB_NSOff */									
+#ifdef CONFIG_GSM_MODEM_SPRD6500
+		case 32 : /* 3Mic SPK, NB, NS On, CP2 */
+		case 34 : /* 3Mic SPK, NB, NS Off, CP2 */
+#endif
 			veq_use_case = VEQ_FT;
 		default:
 			break;
@@ -3597,78 +3446,6 @@ int es705_put_veq_block(int volume)
 		goto EXIT;
 	}
 
-	/* VEQ Coefficients Filter */
-	if (network_type == WIDE_BAND) {
-		veq_coeff_size = 0x4A;
-		wdbp = (char *)&veq_coefficients_wb[veq_use_case][volume][0];
-	}
-	else {
-		veq_coeff_size = 0x3E;
-		wdbp = (char *)&veq_coefficients_nb[veq_use_case][volume][0];
-	}
-	cmd = 0x802f0000 | (veq_coeff_size & 0xffff);
-	cmd = cpu_to_le32(cmd);
-	ret = es705->dev_write(es705, (char *)&cmd, 4);
-	dev_dbg(es705->dev, "%s(): write veq coeff size 0x%08x\n",
-		    __func__, cmd);
-	if (ret < 0) {
-		dev_err(es705->dev, "%s(): write veq coeff size 0x%08x failed\n",
-		    __func__, cmd);
-		goto EXIT;
-	}
-
-	usleep_range(10000, 10000);
-
-	do {
-		ret = es705->dev_read(es705, (char *)&resp,
-				ES705_READ_VE_WIDTH);
-		count++;
-	} while (resp != cmd && count < max_retry_cnt);
-
-	if (resp != cmd) {
-		dev_err(es705->dev, "%s(): error writing veq coeff size, resp is 0x%08x\n",
-				__func__, resp);
-		goto EXIT;
-	}
-
-	while (wr < veq_coeff_size) {
-		int sz = min(veq_coeff_size - wr, ES705_WRITE_VE_WIDTH);
-
-		if (sz < ES705_WRITE_VE_WIDTH) {
-			cmd = 0;
-			count = 0;
-			while (sz>0) {
-				cmd = cmd << 8;
-				cmd = cmd | wdbp[wr++];
-				sz--;
-				count++;
-			}
-			cmd = cmd << ((ES705_WRITE_VE_WIDTH-count)*8);
-		}
-		else {
-			cmd = *((int *)(wdbp+wr));
-			cmd = cpu_to_be32(cmd);
-	        }
-		es705->dev_write(es705, (char *)&cmd, ES705_WRITE_VE_WIDTH);
-		wr += sz;
-	}
-
-	usleep_range(10000, 10000);
-
-	count = 0;
-	do {
-		fin_resp = 0xFFFFFFFF;
-		ret = es705->dev_read(es705, (char *)&fin_resp,
-				ES705_READ_VE_WIDTH);
-		count++;
-	} while (fin_resp != 0x802f0000 && count < max_retry_cnt);
-
-	if (fin_resp != 0x802f0000) {
-		dev_err(es705->dev, "%s(): error writing veq coeff block, resp is 0x%08x\n",
-				__func__, fin_resp);
-		goto EXIT;
-	}
-
 	dev_info(es705->dev, "%s(): success\n", __func__);
 	
 EXIT:
@@ -3698,65 +3475,47 @@ static int es705_get_internal_route_config(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-#if defined(PREVENT_CALL_MUTE_WHEN_SWITCH_NB_AND_WB)
-static void es705_restore_bwe_veq(void)
+static void es705_restore_bwe_veq(int pre_bwe, int pre_veq)
 {
 	struct es705_priv *es705 = &es705_priv;
 	int rc;
-	static int latest_bwe = -1;
-	static int latest_veq = -1;
-	static int latest_veq_preset = -1;
 	
 	dev_info(es705->dev, 
-			"%s(): latest_bwe : %d, current_bwe : %d\n",
-			__func__, latest_bwe, es705->current_bwe);
+			"%s(): pre_bwe : %d, current_bwe : %d\n",
+			__func__, pre_bwe, es705->current_bwe);
 
 	dev_info(es705->dev, 
-			"%s(): latest_veq : %d, current_veq : %d\n",
-			__func__, latest_veq, es705->current_veq);
+			"%s(): pre_veq : %d, current_veq : %d\n",
+			__func__, pre_veq, es705->current_veq);
 
-	dev_info(es705->dev, 
-			"%s(): latest_veq_preset : %d, current_veq_preset : %d\n",
-			__func__, latest_veq_preset, es705->current_veq_preset);
-
-	/* Restore BWE */
-	if (latest_bwe != es705->current_bwe) {
-		latest_bwe = es705->current_bwe;
-		if (network_type == NARROW_BAND) {
-			/* 0 = off, 1 = on */
-			if (es705->current_bwe)
-				rc = es705_write(NULL, ES705_PRESET,
-								ES705_BWE_ON_PRESET);
-			else
-				rc = es705_write(NULL, ES705_PRESET,
-								ES705_BWE_OFF_PRESET);
+	if (es705->internal_route_num != 5) {
+		/* Restore BWE */
+		if (pre_bwe != es705->current_bwe) {
+			if (network_type == NARROW_BAND) {
+				/* 0 = off, 1 = on */
+				if (pre_bwe)
+					rc = es705_write(NULL, ES705_PRESET,
+									ES705_BWE_ON_PRESET);
+				else
+					rc = es705_write(NULL, ES705_PRESET,
+									ES705_BWE_OFF_PRESET);
+			}
 		}
-	}
 
-
-	/* Restore VEQ */
-	if (latest_veq != es705->current_veq) {
-		latest_veq = es705->current_veq;
-		es705_put_veq_block(es705->current_veq);
-	}
-
-	if (latest_veq_preset != es705->current_veq_preset) {
-		latest_veq_preset = es705->current_veq_preset;
-		/* 0 = off, 1 = on */
-		if (es705->current_veq_preset)
-			rc = es705_write(NULL, ES705_PRESET,
-							ES705_VEQ_ON_PRESET);
-		else
-			rc = es705_write(NULL, ES705_PRESET,
-							ES705_VEQ_OFF_PRESET);
-	}
+		/* Restore VEQ */
+		if (pre_veq != es705->current_veq)
+				es705_put_veq_block(pre_veq);
+	}else
+		dev_info(es705->dev, "%s(): Route %ld is not call state\n",
+				__func__, es705->internal_route_num);
 }
-#endif
 
 static int es705_put_network_type(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
 	struct es705_priv *es705 = &es705_priv;
+	int pre_bwe = es705->current_bwe;
+	int pre_veq = es705->current_veq;
 
 	dev_info(es705->dev, "%s():network type = %ld pm_state = %d\n",
 		__func__, ucontrol->value.integer.value[0], es705->pm_state);
@@ -3769,9 +3528,7 @@ static int es705_put_network_type(struct snd_kcontrol *kcontrol,
 	mutex_lock(&es705->pm_mutex);
 	if (es705->pm_state == ES705_POWER_AWAKE) {
 		es705_switch_route_config(es705->internal_route_num);
-#if defined(PREVENT_CALL_MUTE_WHEN_SWITCH_NB_AND_WB)
-		es705_restore_bwe_veq();
-#endif
+		es705_restore_bwe_veq(pre_bwe, pre_veq);
 	}
 	mutex_unlock(&es705->pm_mutex);
  
@@ -5377,6 +5134,9 @@ irqreturn_t es705_irq_event(int irq, void *irq_data)
 		mutex_unlock(&es705->cvq_mutex);
 		return IRQ_HANDLED;
 	}
+#if defined(SAMSUNG_ES705_FEATURE)
+	wake_lock_timeout(&es705_priv.voice_det_wakelock, ES705_WAKE_LOCK_TIME);
+#endif
 	/* Get Event status, reset Interrupt */
 	es705_event_status(es705);
 
@@ -5550,6 +5310,7 @@ int es705_core_probe(struct device *dev)
 	rc = es705_init_input_device(&es705_priv);
 	if (rc < 0)
 		goto init_input_device_error;
+	wake_lock_init(&es705_priv.voice_det_wakelock, WAKE_LOCK_SUSPEND, "es705_wakelock");
 #endif
 	rc = es705_gpio_init(&es705_priv);
 	if (rc)
@@ -5591,6 +5352,7 @@ request_vs_firmware_error:
 request_firmware_error:
 gpio_init_error:
 #if defined(SAMSUNG_ES705_FEATURE)
+	wake_lock_destroy(&es705_priv.voice_det_wakelock);
 init_input_device_error:
 #endif
 pdata_error:
@@ -5637,6 +5399,9 @@ static __init int es705_init(void)
 #if !defined(CONFIG_SND_SOC_ES705_UART)
 /* If CONFIG_SND_SOC_ES705_UART, UART probe will initialize char device
  * if a es705 is found */
+#if defined(CONFIG_MACH_TRLTE_EUR) && defined(CONFIG_SND_DSPG_DBMD2)
+	if (system_rev < 15)
+#endif 
 	rc = es705_init_cdev(&es705_priv);
 	if (rc) {
 		pr_err("failed to initialize char device = %d\n", rc);
@@ -5653,6 +5418,7 @@ static __exit void es705_exit(void)
 {
 #if defined(SAMSUNG_ES705_FEATURE)
 	es705_unregister_input_device(&es705_priv);
+	wake_lock_destroy(&es705_priv.voice_det_wakelock);
 #endif
 	if (es705_priv.fw_requested) {
 		release_firmware(es705_priv.standard);

@@ -253,9 +253,9 @@ void __cfg80211_sched_scan_results(struct work_struct *wk)
 	rdev = container_of(wk, struct cfg80211_registered_device,
 			    sched_scan_results_wk);
 
-	request = rdev->sched_scan_req;
-
 	mutex_lock(&rdev->sched_scan_mtx);
+
+	request = rdev->sched_scan_req;
 
 	/* we don't have sched_scan_req anymore if the scan is stopping */
 	if (request) {
@@ -913,11 +913,12 @@ cfg80211_inform_bss(struct wiphy *wiphy,
 	 * override the IEs pointer should we have received an earlier
 	 * indication of Probe Response data.
 	 */
-	ies = kmalloc(sizeof(*ies) + ielen, gfp);
+	ies = kzalloc(sizeof(*ies) + ielen, gfp);
 	if (!ies)
 		return NULL;
 	ies->len = ielen;
 	ies->tsf = tsf;
+	ies->from_beacon = false;
 	memcpy(ies->data, ie, ielen);
 
 	rcu_assign_pointer(tmp.pub.beacon_ies, ies);
@@ -970,11 +971,12 @@ cfg80211_inform_bss_frame(struct wiphy *wiphy,
 	if (!channel)
 		return NULL;
 
-	ies = kmalloc(sizeof(*ies) + ielen, gfp);
+	ies = kzalloc(sizeof(*ies) + ielen, gfp);
 	if (!ies)
 		return NULL;
 	ies->len = ielen;
 	ies->tsf = le64_to_cpu(mgmt->u.probe_resp.timestamp);
+	ies->from_beacon = ieee80211_is_beacon(mgmt->frame_control);
 	memcpy(ies->data, mgmt->u.probe_resp.variable, ielen);
 
 	if (ieee80211_is_probe_resp(mgmt->frame_control))

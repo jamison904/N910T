@@ -97,6 +97,7 @@ enum {
 	MSM_FRONTEND_DAI_LSM7,
 	MSM_FRONTEND_DAI_LSM8,
 	MSM_FRONTEND_DAI_VOICE2_STUB,
+	MSM_FRONTEND_DAI_VOWLAN,
 	MSM_FRONTEND_DAI_MAX,
 };
 
@@ -170,6 +171,14 @@ enum msm_pcm_routing_event {
 
 #define RELEASE_LOCK	0
 #define ACQUIRE_LOCK	1
+
+#define MSM_BACKEND_DAI_PP_PARAMS_REQ_MAX	1
+#define HDMI_RX_ID				0x8001
+#define ADM_PP_PARAM_MUTE_ID			0
+#define ADM_PP_PARAM_MUTE_BIT			1
+#define ADM_PP_PARAM_LATENCY_ID			1
+#define ADM_PP_PARAM_LATENCY_BIT		2
+
 struct msm_pcm_routing_evt {
 	void (*event_func)(enum msm_pcm_routing_event, void *);
 	void *priv_data;
@@ -186,6 +195,8 @@ struct msm_pcm_routing_bdai_data {
 	unsigned int  sample_rate;
 	unsigned int  channel;
 	unsigned int  format;
+	u32 compr_passthr_mode;
+	char *name;
 };
 
 struct msm_pcm_routing_fdai_data {
@@ -202,6 +213,9 @@ void msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode, int dspst_id,
 	int stream_type);
 void msm_pcm_routing_reg_psthr_stream(int fedai_id, int dspst_id,
 		int stream_type);
+void msm_pcm_routing_reg_phy_compr_stream(int fedai_id, bool perf_mode,
+					  int dspst_id, int stream_type,
+					  uint32_t compr_passthr);
 
 void msm_pcm_routing_reg_phy_stream_v2(int fedai_id, bool perf_mode,
 				       int dspst_id, int stream_type,

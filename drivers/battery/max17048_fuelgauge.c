@@ -379,7 +379,7 @@ static void max17048_rcomp_update(struct i2c_client *client, int temp)
 static int max17048_fuelgauge_parse_dt(struct max17048_fuelgauge_data *fuelgauge)
 {
 	struct device_node *np = of_find_node_by_name(NULL, "max17048-fuelgauge");
-	sec_battery_platform_data_t *pdata = fuelgauge->pdata;
+	sec_fuelgauge_platform_data_t *pdata = fuelgauge->pdata;
 
 
 	if (np == NULL) {
@@ -1030,7 +1030,7 @@ static int max17048_fuelgauge_probe(struct i2c_client *client,
 {
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
 	struct max17048_fuelgauge_data *fuelgauge;
-	sec_battery_platform_data_t *pdata = NULL;
+	sec_fuelgauge_platform_data_t *pdata = NULL;
 	struct max17048_fuelgauge_battery_data_t *battery_data = NULL;
 	int ret = 0;
 	union power_supply_propval raw_soc_val;
@@ -1050,7 +1050,7 @@ static int max17048_fuelgauge_probe(struct i2c_client *client,
 
 	if (client->dev.of_node) {
 		pdata = devm_kzalloc(&client->dev,
-			sizeof(sec_battery_platform_data_t), GFP_KERNEL);
+			sizeof(sec_fuelgauge_platform_data_t), GFP_KERNEL);
 		if (!pdata) {
 			dev_err(&client->dev, "Failed to allocate memory\n");
 			ret = -ENOMEM;

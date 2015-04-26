@@ -108,7 +108,7 @@ static int mdss_mdp_splash_iommu_attach(struct msm_fb_data_type *mfd)
 {
 	struct iommu_domain *domain;
 	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
-	int rc;
+	int rc, ret;
 
 	/*
 	 * iommu dynamic attach for following conditions.
@@ -138,9 +138,9 @@ static int mdss_mdp_splash_iommu_attach(struct msm_fb_data_type *mfd)
 	if (rc) {
 		pr_debug("iommu memory mapping failed rc=%d\n", rc);
 	} else {
-		rc = mdss_iommu_attach(mdss_res);
-		if (rc) {
-			pr_debug("mdss iommu attach failed\n");
+		ret = mdss_iommu_ctrl(1);
+		if (IS_ERR_VALUE(ret)) {
+			pr_err("mdss iommu attach failed\n");
 			iommu_unmap(domain, mdp5_data->splash_mem_addr,
 						mdp5_data->splash_mem_size);
 		} else {
@@ -166,6 +166,8 @@ static void mdss_mdp_splash_unmap_splash_mem(struct msm_fb_data_type *mfd)
 
 		iommu_unmap(domain, mdp5_data->splash_mem_addr,
 						mdp5_data->splash_mem_size);
+		mdss_iommu_ctrl(0);
+
 		mfd->splash_info.iommu_dynamic_attached = false;
 	}
 }
@@ -189,19 +191,12 @@ void mdss_mdp_release_splash_pipe(struct msm_fb_data_type *mfd)
 int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 					bool use_borderfill)
 {
-	struct mdss_overlay_private *mdp5_data;
-	struct mdss_mdp_ctl *ctl;
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
+	struct mdss_mdp_ctl *ctl = mdp5_data->ctl;
 	int rc = 0;
 
-	if (!mfd)
+	if (!mfd || !mdp5_data)
 		return -EINVAL;
-
-	mdp5_data = mfd_to_mdp5_data(mfd);
-
-	if (!mdp5_data)
-		return -EINVAL;
-
-	ctl = mdp5_data->ctl;
 
 	if (mfd->splash_info.iommu_dynamic_attached ||
 			!mfd->panel_info->cont_splash_enabled)
@@ -243,7 +238,7 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 
 	if(ctl)
 		mdss_mdp_ctl_splash_finish(ctl, mdp5_data->handoff);
-
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG) && defined(CONFIG_SEC_DEBUG)
 	if (!sec_debug_is_enabled()) {
 		if (mdp5_data->splash_mem_addr) {
 			/* Give back the reserved memory to the system */
@@ -253,14 +248,16 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 					 mdp5_data->splash_mem_size);
 		}
 	}
-
-	mdss_mdp_footswitch_ctrl_splash(0);
-	if (!is_mdss_iommu_attached()) {
-		rc = mdss_iommu_attach(mdss_res);
-		if (rc)
-			pr_err("iommu attach failed rc=%d\n", rc);
+#else
+	if (mdp5_data->splash_mem_addr) {
+		/* Give back the reserved memory to the system */
+		memblock_free(mdp5_data->splash_mem_addr,
+					mdp5_data->splash_mem_size);
+		free_bootmem_late(mdp5_data->splash_mem_addr,
+					 mdp5_data->splash_mem_size);
 	}
-
+#endif
+	mdss_mdp_footswitch_ctrl_splash(0);
 end:
 	return rc;
 }
@@ -288,7 +285,6 @@ static struct mdss_mdp_pipe *mdss_mdp_splash_get_pipe(
 	buf->p[0].addr = mfd->splash_info.iova;
 	buf->p[0].len = image_size;
 	buf->num_planes = 1;
-	pipe->has_buf = 1;
 	mdss_mdp_pipe_unmap(pipe);
 
 	return pipe;
@@ -474,7 +470,13 @@ static int mdss_mdp_splash_ctl_cb(struct notifier_block *self,
 					struct msm_fb_splash_info, notifier);
 	struct msm_fb_data_type *mfd;
 
+	if (!sinfo)
+		goto done;
+
 	mfd = container_of(sinfo, struct msm_fb_data_type, splash_info);
+
+	if (!mfd)
+		goto done;
 
 	if (event != MDP_NOTIFY_FRAME_DONE)
 		goto done;
@@ -499,14 +501,13 @@ done:
 static int mdss_mdp_splash_thread(void *data)
 {
 	struct msm_fb_data_type *mfd = data;
-	struct mdss_overlay_private *mdp5_data;
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
 	int ret = -EINVAL;
 
 	if (!mfd) {
 		pr_err("invalid input parameter\n");
 		goto end;
 	}
-	mdp5_data = mfd_to_mdp5_data(mfd);
 
 	lock_fb_info(mfd->fbi);
 	ret = fb_blank(mfd->fbi, FB_BLANK_UNBLANK);
@@ -516,8 +517,8 @@ static int mdss_mdp_splash_thread(void *data)
 	}
 	unlock_fb_info(mfd->fbi);
 
-	mfd->bl_updated = true;
 	mutex_lock(&mfd->bl_lock);
+	mfd->bl_updated = true;
 	mdss_fb_set_backlight(mfd, mfd->panel_info->bl_max >> 1);
 	mutex_unlock(&mfd->bl_lock);
 

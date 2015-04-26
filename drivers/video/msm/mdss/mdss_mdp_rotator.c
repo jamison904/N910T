@@ -285,7 +285,6 @@ static int mdss_mdp_rotator_queue_sub(struct mdss_mdp_rotator_session *rot,
 		pr_err("unable to queue rot data\n");
 		goto error;
 	}
-
 	ATRACE_BEGIN("rotator_kickoff");
 	ret = mdss_mdp_rotator_kickoff(rot_ctl, rot, dst_data);
 	ATRACE_END("rotator_kickoff");
@@ -473,19 +472,20 @@ int mdss_mdp_rotator_setup(struct msm_fb_data_type *mfd,
 		list_add(&rot->list, &mdp5_data->rot_proc_list);
 	} else if (req->id & MDSS_MDP_ROT_SESSION_MASK) {
 		rot = mdss_mdp_rotator_session_get(req->id);
-
 		if (!rot) {
 			pr_err("rotator session=%x not found\n", req->id);
 			ret = -ENODEV;
 			goto rot_err;
 		}
-		if (rot->format != fmt->format)
-			format_changed = true;
+
 		if (work_pending(&rot->commit_work)) {
 			mutex_unlock(&rotator_lock);
 			flush_work(&rot->commit_work);
 			mutex_lock(&rotator_lock);
 		}
+		if (rot->format != fmt->format)
+			format_changed = true;
+
 	} else {
 		pr_err("invalid rotator session id=%x\n", req->id);
 		ret = -EINVAL;
@@ -532,6 +532,7 @@ int mdss_mdp_rotator_setup(struct msm_fb_data_type *mfd,
 		swap(rot->dst.w, rot->dst.h);
 
 	rot->params_changed++;
+
 	/* If the format changed, release the smp alloc */
 	if (format_changed && rot->pipe) {
 		mdss_mdp_rotator_busy_wait(rot);
@@ -585,9 +586,10 @@ static int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot)
 	if (rot_pipe) {
 		if (work_pending(&rot->commit_work)) {
 			mutex_unlock(&rotator_lock);
-			cancel_work_sync(&rot->commit_work);
+			flush_work(&rot->commit_work);
 			mutex_lock(&rotator_lock);
 		}
+
 		mdss_mdp_rotator_busy_wait(rot);
 		list_del(&rot->head);
 	}
@@ -655,6 +657,8 @@ int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 	u32 flgs;
 
 	mutex_lock(&rotator_lock);
+
+	MDSS_XLOG(req->id, 0xB);
 	rot = mdss_mdp_rotator_session_get(req->id);
 	if (!rot) {
 		pr_err("invalid session id=%x\n", req->id);
@@ -664,12 +668,7 @@ int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 
 	flgs = rot->flags & MDP_SECURE_OVERLAY_SESSION;
 
-	ret = mdss_bus_bandwidth_ctrl(1);
-	if (ret) {
-		pr_err("mdss iommu attach failed rc=%d", ret);
-		goto session_fail;
-	}
-	
+	mdss_iommu_ctrl(1);
 	ret = mdss_mdp_rotator_busy_wait_ex(rot);
 	if (ret) {
 		pr_err("rotator busy wait error\n");
@@ -678,7 +677,6 @@ int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 
 	mdss_mdp_data_free(&rot->src_buf);
 	ret = mdss_mdp_data_get(&rot->src_buf, &req->data, 1, flgs);
-
 	if (ret) {
 		pr_err("src_data pmem error\n");
 		goto dst_buf_fail;
@@ -690,8 +688,9 @@ int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 		mdss_mdp_data_free(&rot->src_buf);
 		goto dst_buf_fail;
 	}
+
 	mdss_mdp_data_free(&rot->dst_buf);
-	ret = mdss_mdp_data_get(&rot->dst_buf, &req->dst_data, 1, flgs);	
+	ret = mdss_mdp_data_get(&rot->dst_buf, &req->dst_data, 1, flgs);
 	if (ret) {
 		pr_err("dst_data pmem error\n");
 		mdss_mdp_data_free(&rot->src_buf);
@@ -702,7 +701,7 @@ int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 	if (ret) {
 		pr_err("unable to map destination buffer\n");
 		mdss_mdp_data_free(&rot->dst_buf);
-		mdss_mdp_data_free(&rot->src_buf);		
+		mdss_mdp_data_free(&rot->src_buf);
 		goto dst_buf_fail;
 	}
 
@@ -712,8 +711,8 @@ int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 		pr_err("rotator queue error session id=%x\n", req->id);
 
 dst_buf_fail:
-	mdss_bus_bandwidth_ctrl(0);
-	
+	mdss_iommu_ctrl(0);
+	MDSS_XLOG(req->id, 0xE);
 session_fail:
 	mutex_unlock(&rotator_lock);
 	return ret;

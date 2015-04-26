@@ -240,16 +240,17 @@ exit:
 
 static int calculate_proximity_threshold(struct ssp_data *data)
 {
-	if (data->uCrosstalk < 55) {
+	if (data->uCrosstalk < data->uProxLoThresh_cal) {
 		data->uProxCanc = 0;
 		data->uProxCalResult = 2;
-	} else if (data->uCrosstalk <= 100) {
+	} else if (data->uCrosstalk <= data->uProxHiThresh_cal) {
 		data->uProxCanc = data->uCrosstalk * 5 / 10;
 		data->uProxCalResult = 1;
 	} else {
 		data->uProxCanc = 0;
 		data->uProxCalResult = 0;
-		pr_info("[SSP] crosstalk > 100, calibration failed\n");
+		pr_info("[SSP] crosstalk > %d, calibration failed\n",
+			data->uProxHiThresh_cal);
 		return ERROR;
 	}
 	data->uProxHiThresh = data->uProxHiThresh_default + data->uProxCanc;

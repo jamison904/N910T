@@ -302,6 +302,12 @@ config SND_SOC_3MIC_SUPPORT
 	help
 		To add support for ES705 3MI
 
+config SND_SOC_ES705_FOR_VOIP
+	tristate "ES705 VOIP"
+	default n
+	help
+		To add support for ES705 VOIP
+
 config SND_SOC_MAXIM_DSM
 	bool "Support MAXIM DSM"
 	depends on SND_SOC_MAX98504 || SND_SOC_MAX98505
@@ -594,3 +600,5 @@ config SND_SOC_MSM_HDMI_CODEC_RX
 	help
 	HDMI audio drivers should be built only if the platform
         supports hdmi panel.
+        
+source "sound/soc/codecs/dbmd2/Kconfig"

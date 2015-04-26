@@ -1208,20 +1208,13 @@ source "usr/Kconfig"
 
 endif
 
-choice
-  prompt "Optimization level"
-  default CC_OPTIMIZE_DEFAULT
-
 config CC_OPTIMIZE_FOR_SIZE
-	bool "Use -Os"
+	bool "Optimize for size"
+	help
+	  Enabling this option will pass "-Os" instead of "-O2" to gcc
+	  resulting in a smaller kernel.
 
-config CC_OPTIMIZE_DEFAULT
-  	bool "Use -O2"
-
-config CC_OPTIMIZE_ALOT
-  	bool "Use -O3"
-
-endchoice
+	  If unsure, say N.
 
 config SYSCTL
 	bool
@@ -1377,6 +1370,13 @@ config FUTEX
 	  Disabling this option will cause the kernel to be built without
 	  support for "fast userspace mutexes".  The resulting kernel may not
 	  run glibc-based applications correctly.
+
+config HAVE_FUTEX_CMPXCHG
+	bool
+	help
+	  Architectures should select this if futex_atomic_cmpxchg_inatomic()
+	  is implemented and always working. This removes a couple of runtime
+	  checks.
 
 config EPOLL
 	bool "Enable eventpoll support" if EXPERT

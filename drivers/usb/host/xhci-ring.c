@@ -67,6 +67,12 @@
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include "xhci.h"
+#include <linux/hrtimer.h>
+
+extern struct dbg_data dbg_hsic;
+unsigned ep_mask;
+unsigned tmp_trb_type, maxp_trb_type;
+ktime_t handle_start_time;
 
 static int handle_cmd_in_cmd_wait_list(struct xhci_hcd *xhci,
 		struct xhci_virt_device *virt_dev,
@@ -379,31 +385,31 @@ int xhci_cancel_cmd(struct xhci_hcd *xhci, struct xhci_command *command,
 	if (xhci->xhc_state & XHCI_STATE_DYING) {
 		xhci_warn(xhci, "Abort the command ring,"
 				" but the xHCI is dead.\n");
-		retval = -ESHUTDOWN;
-		goto fail;
+		spin_unlock_irqrestore(&xhci->lock, flags);
+		return -ESHUTDOWN;
 	}
 
 	/* queue the cmd desriptor to cancel_cmd_list */
 	retval = xhci_queue_cd(xhci, command, cmd_trb);
 	if (retval) {
 		xhci_warn(xhci, "Queuing command descriptor failed.\n");
-		goto fail;
+		spin_unlock_irqrestore(&xhci->lock, flags);
+		return retval;
 	}
+
+	spin_unlock_irqrestore(&xhci->lock, flags);
 
 	/* abort command ring */
 	retval = xhci_abort_cmd_ring(xhci);
 	if (retval) {
 		xhci_err(xhci, "Abort command ring failed\n");
 		if (unlikely(retval == -ESHUTDOWN)) {
-			spin_unlock_irqrestore(&xhci->lock, flags);
 			usb_hc_died(xhci_to_hcd(xhci)->primary_hcd);
 			xhci_dbg(xhci, "xHCI host controller is dead.\n");
 			return retval;
 		}
 	}
 
-fail:
-	spin_unlock_irqrestore(&xhci->lock, flags);
 	return retval;
 }
 
@@ -444,7 +450,7 @@ static void ring_doorbell_for_active_rings(struct xhci_hcd *xhci,
 
 	/* A ring has pending URBs if its TD list is not empty */
 	if (!(ep->ep_state & EP_HAS_STREAMS)) {
-		if (!(list_empty(&ep->ring->td_list)))
+		if (ep->ring && !(list_empty(&ep->ring->td_list)))
 			xhci_ring_ep_doorbell(xhci, slot_id, ep_index, 0);
 		return;
 	}
@@ -790,6 +796,8 @@ static void handle_stopped_endpoint(struct xhci_hcd *xhci,
 
 	struct xhci_dequeue_state deq_state;
 
+	if (xhci->main_hcd->driver->set_autosuspend)
+		xhci->main_hcd->driver->set_autosuspend(xhci->main_hcd, 1);
 	if (unlikely(TRB_TO_SUSPEND_PORT(
 			     le32_to_cpu(xhci->cmd_ring->dequeue->generic.field[3])))) {
 		slot_id = TRB_TO_SLOT_ID(
@@ -879,8 +887,12 @@ remove_finished_td:
 		/* Otherwise ring the doorbell(s) to restart queued transfers */
 		ring_doorbell_for_active_rings(xhci, slot_id, ep_index);
 	}
-	ep->stopped_td = NULL;
-	ep->stopped_trb = NULL;
+
+	/* Clear stopped_td and stopped_trb if endpoint is not halted */
+	if (!(ep->ep_state & EP_HALTED)) {
+		ep->stopped_td = NULL;
+		ep->stopped_trb = NULL;
+	}
 
 	if ((xhci->quirks & XHCI_TR_DEQ_RESET_QUIRK) &&
 			list_empty(&ep->ring->td_list) &&
@@ -948,6 +960,8 @@ void xhci_stop_endpoint_command_watchdog(unsigned long arg)
 
 	spin_lock_irqsave(&xhci->lock, flags);
 
+	if (xhci->main_hcd->driver->set_autosuspend)
+		xhci->main_hcd->driver->set_autosuspend(xhci->main_hcd, 1);
 	ep->stop_cmds_pending--;
 	if (xhci->xhc_state & XHCI_STATE_DYING) {
 		xhci_dbg(xhci, "Stop EP timer ran, but another timer marked "
@@ -1094,6 +1108,7 @@ static void handle_set_deq_completion(struct xhci_hcd *xhci,
 	struct xhci_virt_device *dev;
 	struct xhci_ep_ctx *ep_ctx;
 	struct xhci_slot_ctx *slot_ctx;
+	unsigned int slot_state;
 
 	slot_id = TRB_TO_SLOT_ID(le32_to_cpu(trb->generic.field[3]));
 	ep_index = TRB_TO_EP_INDEX(le32_to_cpu(trb->generic.field[3]));
@@ -1117,10 +1132,11 @@ static void handle_set_deq_completion(struct xhci_hcd *xhci,
 
 	ep_ctx = xhci_get_ep_ctx(xhci, dev->out_ctx, ep_index);
 	slot_ctx = xhci_get_slot_ctx(xhci, dev->out_ctx);
+	slot_state = le32_to_cpu(slot_ctx->dev_state);
+	slot_state = GET_SLOT_STATE(slot_state);
 
 	if (GET_COMP_CODE(le32_to_cpu(event->status)) != COMP_SUCCESS) {
 		unsigned int ep_state;
-		unsigned int slot_state;
 
 		switch (GET_COMP_CODE(le32_to_cpu(event->status))) {
 		case COMP_TRB_ERR:
@@ -1134,8 +1150,6 @@ static void handle_set_deq_completion(struct xhci_hcd *xhci,
 					"to incorrect slot or ep state.\n");
 			ep_state = le32_to_cpu(ep_ctx->ep_info);
 			ep_state &= EP_STATE_MASK;
-			slot_state = le32_to_cpu(slot_ctx->dev_state);
-			slot_state = GET_SLOT_STATE(slot_state);
 			xhci_dbg(xhci, "Slot state = %u, EP state = %u\n",
 					slot_state, ep_state);
 			break;
@@ -1184,7 +1198,7 @@ static void handle_set_deq_completion(struct xhci_hcd *xhci,
 
 	/* reset ring here if it was not done due to pending set tr deq cmd */
 	if (xhci->quirks & XHCI_TR_DEQ_RESET_QUIRK &&
-			list_empty(&ep_ring->td_list))
+			list_empty(&ep_ring->td_list) && slot_state)
 		xhci_reset_ep_ring(xhci, slot_id, ep_ring, ep_index);
 }
 
@@ -2378,6 +2392,7 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 
 	/* Endpoint ID is 1 based, our index is zero based */
 	ep_index = TRB_TO_EP_ID(le32_to_cpu(event->flags)) - 1;
+	ep_mask |= (1 << ep_index);  
 	ep = &xdev->eps[ep_index];
 	ep_ring = xhci_dma_to_transfer_ring(ep, le64_to_cpu(event->buffer));
 	ep_ctx = xhci_get_ep_ctx(xhci, xdev->out_ctx, ep_index);
@@ -2706,6 +2721,7 @@ int xhci_handle_event(struct xhci_hcd *xhci)
 	 * speculative reads of the event's flags/data below.
 	 */
 	rmb();
+	tmp_trb_type = le32_to_cpu(event->event_cmd.flags) & TRB_TYPE_BITMASK;
 	/* FIXME: Handle more event types. */
 	switch ((le32_to_cpu(event->event_cmd.flags) & TRB_TYPE_BITMASK)) {
 	case TRB_TYPE(TRB_COMPLETION):
@@ -2763,6 +2779,11 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 	u64 temp_64;
 	union xhci_trb *event_ring_deq;
 	dma_addr_t deq;
+	unsigned int event_cnt = 0;
+	ktime_t irq_delta, t1, t2;
+	s64 temp, max_t = 0, min_t = 0;
+
+	irq_delta = ktime_get();
 
 	spin_lock(&xhci->lock);
 	/* Check if the xHC generated the interrupt, or the irq is shared */
@@ -2818,7 +2839,25 @@ hw_died:
 	/* FIXME this should be a delayed service routine
 	 * that clears the EHB.
 	 */
-	while (xhci_handle_event(xhci) > 0) {}
+	while (1) {
+		handle_start_time = t1 = ktime_get();
+		
+		if (xhci_handle_event(xhci) <= 0)
+			break;
+		t2 = ktime_get();
+		temp = ktime_to_us(ktime_sub(t2, t1));
+		if (temp > max_t){
+			max_t = temp;
+			maxp_trb_type = tmp_trb_type;
+		}
+
+		if (!min_t)
+			min_t = temp;
+		if (temp < max_t)
+			if (temp < min_t)
+				min_t = temp;
+		event_cnt++;
+	}
 
 	temp_64 = xhci_read_64(xhci, &xhci->ir_set->erst_dequeue);
 	/* If necessary, update the HW's version of the event ring deq ptr. */
@@ -2838,6 +2877,11 @@ hw_died:
 	xhci_write_64(xhci, temp_64, &xhci->ir_set->erst_dequeue);
 
 	spin_unlock(&xhci->lock);
+
+	xhci_dbg_irq_event(&dbg_hsic, maxp_trb_type, max_t, event_cnt,
+		ktime_to_us(ktime_sub(ktime_get(), irq_delta)), ep_mask);
+
+	ep_mask = 0;
 
 	return IRQ_HANDLED;
 }

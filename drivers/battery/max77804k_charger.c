@@ -14,8 +14,6 @@
 #include <linux/mfd/max77804k-private.h>
 #include <linux/of_gpio.h>
 #include <linux/battery/charger/max77804k_charger.h>
-#include <linux/fastchg.h>
-
 #ifdef CONFIG_USB_HOST_NOTIFY
 #include <linux/host_notify.h>
 #endif
@@ -103,7 +101,7 @@ struct max77804k_charger_data {
 	int input_curr_limit_step;
 	int charging_curr_step;
 
-	sec_battery_platform_data_t	*pdata;
+	sec_charger_platform_data_t	*pdata;
 };
 
 static enum power_supply_property sec_charger_props[] = {
@@ -859,7 +857,6 @@ static int sec_chg_set_property(struct power_supply *psy,
 	int set_charging_current, set_charging_current_max;
 	const int usb_charging_current = charger->pdata->charging_current[
 		POWER_SUPPLY_TYPE_USB].fast_charging_current;
-	int current_now = 0;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -977,47 +974,8 @@ static int sec_chg_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 		charger->siop_level = val->intval;
 		if (charger->is_charging) {
-			if (force_fast_charge == FAST_CHARGE_FORCE_AC) {
-				switch(charger->cable_type) {
-					case POWER_SUPPLY_TYPE_USB:
-					case POWER_SUPPLY_TYPE_USB_ACA:
-					case POWER_SUPPLY_TYPE_CARDOCK:
-					case POWER_SUPPLY_TYPE_OTG:
-						current_now = FAST_CHARGE_900;
-						goto set_current;
-					case POWER_SUPPLY_TYPE_WIRELESS:
-						current_now = FAST_CHARGE_900;
-						goto set_current;
-					case POWER_SUPPLY_TYPE_MAINS:
-						current_now = FAST_CHARGE_1500;
-						goto set_current;
-				}
-			} else if (force_fast_charge ==
-				FAST_CHARGE_FORCE_CUSTOM_MA) {
-				switch(charger->cable_type) {
-					case POWER_SUPPLY_TYPE_USB:
-					case POWER_SUPPLY_TYPE_USB_DCP:
-					case POWER_SUPPLY_TYPE_USB_CDP:
-					case POWER_SUPPLY_TYPE_USB_ACA:
-					case POWER_SUPPLY_TYPE_CARDOCK:
-					case POWER_SUPPLY_TYPE_OTG:
-						current_now = FAST_CHARGE_900;
-						goto set_current;
-					case POWER_SUPPLY_TYPE_WIRELESS:
-						current_now = FAST_CHARGE_900;
-						goto set_current;
-					case POWER_SUPPLY_TYPE_MAINS:
-						current_now =
-							min(fast_charge_level,
-							FAST_CHARGE_2200);
-						goto set_current;
-					default:
-						break;
-				}
-			}
-
 			/* decrease the charging current according to siop level */
-			current_now =
+			int current_now =
 				charger->charging_current * val->intval / 100;
 
 			/* do forced set charging current */
@@ -1052,7 +1010,7 @@ static int sec_chg_set_property(struct power_supply *psy,
 				max77804k_set_input_current(charger,
 					set_charging_current_max);
 			}
-set_current:
+
 			max77804k_set_charge_current(charger, current_now);
 		}
 		break;
@@ -1679,7 +1637,7 @@ static int sec_charger_read_u32_index_dt(const struct device_node *np,
 static int sec_charger_parse_dt(struct max77804k_charger_data *charger)
 {
 	struct device_node *np = of_find_node_by_name(NULL, "charger");
-	sec_battery_platform_data_t *pdata = charger->pdata;
+	sec_charger_platform_data_t *pdata = charger->pdata;
 	int ret = 0;
 	int i, len;
 	const u32 *p;
@@ -1748,7 +1706,7 @@ static int max77804k_charger_probe(struct platform_device *pdev)
 	if (!charger)
 		return -ENOMEM;
 
-	pdata->charger_data = kzalloc(sizeof(sec_battery_platform_data_t), GFP_KERNEL);
+	pdata->charger_data = kzalloc(sizeof(sec_charger_platform_data_t), GFP_KERNEL);
 	if (!pdata->charger_data) {
 		ret = -ENOMEM;
 		goto err_free;
@@ -1775,8 +1733,8 @@ static int max77804k_charger_probe(struct platform_device *pdev)
 	charger->psy_otg.type		= POWER_SUPPLY_TYPE_OTG;
 	charger->psy_otg.get_property	= max77804k_otg_get_property;
 	charger->psy_otg.set_property	= max77804k_otg_set_property;
-	charger->psy_chg.properties		= max77804k_otg_props;
-	charger->psy_chg.num_properties	= ARRAY_SIZE(max77804k_otg_props);
+	charger->psy_otg.properties		= max77804k_otg_props;
+	charger->psy_otg.num_properties	= ARRAY_SIZE(max77804k_otg_props);
 	mutex_init(&charger->ops_lock);
 
 	if (charger->pdata->chg_gpio_init) {

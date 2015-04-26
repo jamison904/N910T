@@ -277,7 +277,6 @@ static ssize_t mic2873_flash_show(struct device *dev,
 
     return snprintf(buf, sizeof(temp_print), "%s", temp_print);
 }
-
 static ssize_t mic2873_flash(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
@@ -315,10 +314,8 @@ static ssize_t mic2873_flash(struct device *dev,
 
 	return ret;
 }
-
 static DEVICE_ATTR(rear_flash, S_IWUSR|S_IWGRP|S_IROTH,
 	mic2873_flash_show, mic2873_flash);
-
 static int mic2873_led_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -334,7 +331,6 @@ static int mic2873_led_probe(struct platform_device *pdev)
 	}
 
         sysfs_flash_op = 0; //default off
-
         if (!IS_ERR(camera_class)) {
 		flash_dev = device_create(camera_class, NULL, 0, NULL, "flash");
 		if (flash_dev < 0) {
@@ -351,7 +347,6 @@ static int mic2873_led_probe(struct platform_device *pdev)
 		pr_err("Failed to create device(flash) because of nothing camera class!\n");
                 ret = -EINVAL;
         }
-
 	if (!ret)
 		pr_info("LED PROBED!\n");
 

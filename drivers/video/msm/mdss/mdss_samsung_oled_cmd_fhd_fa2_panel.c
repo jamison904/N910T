@@ -513,8 +513,8 @@ void mdss_dsi_samsung_panel_reset(struct mdss_panel_data *pdata, int enable)
 static char caset[] = {0x2a, 0x00, 0x00, 0x03, 0x00};	/* DTYPE_DCS_LWRITE */
 static char paset[] = {0x2b, 0x00, 0x00, 0x05, 0x00};	/* DTYPE_DCS_LWRITE */
 static struct dsi_cmd_desc partial_update_enable_cmd[] = {
-	{{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(caset)}, caset},
-	{{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(paset)}, paset},
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(caset)}, caset},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(paset)}, paset},
 };
 int mdss_dsi_panel_partial_update(struct mdss_panel_data *pdata)
 {
@@ -2163,7 +2163,7 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("mdss_dsi_panel_on DSI_MODE = %d ++\n",msd.pdata->panel_info.mipi.mode);
 	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (ctrl->shared_pdata.broadcast_enable) {
+	if (mdss_dsi_sync_wait_enable(ctrl)) {
 		if (ctrl->ndx == DSI_CTRL_0) {
 			pr_info("%s: Broadcast mode. 1st ctrl(0). return..\n",__func__);
 			goto end;
@@ -2298,7 +2298,7 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 
 	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
-	if (ctrl->shared_pdata.broadcast_enable) {
+	if (mdss_dsi_sync_wait_enable(ctrl)) {
 		if (ctrl->ndx == DSI_CTRL_0) {
 			pr_info("%s: Broadcast mode. 1st ctrl(0). return..\n",__func__);
 			goto end;

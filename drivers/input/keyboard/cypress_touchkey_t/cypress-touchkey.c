@@ -51,7 +51,7 @@ static int touchkey_led_status;
 static int touchled_cmd_reversed;
 
 extern int boot_mode_recovery;
-extern int get_lcd_attached(void);
+/*extern int get_lcd_attached(void);*/
 
 static int cypress_touchkey_i2c_read(struct i2c_client *client,
 		u8 reg, u8 *val, unsigned int len)
@@ -1846,10 +1846,12 @@ static int cypress_touchkey_probe(struct i2c_client *client,
 		return -EIO;
 	}
 */
+/*
 	if (!get_lcd_attached()){
 		dev_err(&client->dev, "%s: LCD is not attached\n",__func__);
 		return -EIO;
 	}
+*/
 	if (!i2c_check_functionality(adapter, I2C_FUNC_I2C))
 		return -EIO;
 

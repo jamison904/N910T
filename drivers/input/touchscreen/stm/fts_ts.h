@@ -60,6 +60,7 @@
 #ifdef CONFIG_SEC_TBLTE_PROJECT
 #define FTS_FIRMWARE_NAME				"tsp_stm/stm_tb.fw"
 #define FTS_MODEL_CONFIG_NAME				"N915"
+#define TSP_RUN_AUTOTUNE_DEFAULT
 #else
 #define FTS_FIRMWARE_NAME				"tsp_stm/stm_tr.fw"
 #define FTS_MODEL_CONFIG_NAME				"N910"
@@ -148,6 +149,7 @@
 
 #define FTS_CMD_MSKEY_AUTOTUNE				0x96
 
+#define FTS_CMD_KEY_SENSE_OFF				0x9A
 #define FTS_CMD_KEY_SENSE_ON				0x9B
 #define SENSEON_SLOW					0x9C
 
@@ -238,15 +240,21 @@
 #ifdef CONFIG_SEC_TBLTE_PROJECT
 #define FTS_SUPPORT_TOUCH_KEY
 #define FTS_SUPPORT_SIDE_GESTURE	// GRIP, Wakeup
+#define FTS_SUPPORT_EDGE_POSITION
+#define FTS_SUPPORT_MAINSCREEN_DISBLE
 #undef FTS_SUPPORT_2NDSCREEN_FLAG
 #undef FTS_USE_SIDE_SCROLL_FLAG
 //#define EVENTID_SIDE_SCROLL_FLAG	0x40
 #endif
 
+#undef FTS_SUPPORT_QEEXO_ROI	// work with Display lab Mr.her for QEEXO.
+
 #define ESD_CHECK	// for ESD, reset is ok.
 #if defined(CONFIG_SEC_TBLTE_PROJECT) || defined(CONFIG_SEC_TRLTE_PROJECT)
 #define TSP_RAWDATA_DUMP
 #endif
+
+#define FTS_ADDED_RESETCODE_IN_LPLM		//all TB, TR chn for lpm mode.
 
 #ifdef FTS_SUPPORT_TOUCH_KEY
 #define KEY_PRESS		1
@@ -360,13 +368,26 @@ enum tsp_power_mode {
 	TSP_LOWPOWER_MODE,
 };
 
+enum fts_cover_id {
+	FTS_FLIP_WALLET = 0,
+	FTS_VIEW_COVER,
+	FTS_COVER_NOTHING1,
+	FTS_VIEW_WIRELESS,
+	FTS_COVER_NOTHING2,
+	FTS_CHARGER_COVER,
+	FTS_VIEW_WALLET,
+	FTS_LED_COVER,
+	FTS_MONTBLANC_COVER = 100,
+};
+
 enum fts_customer_feature {
 	FTS_FEATURE_ORIENTATION_GESTURE = 1,
 	FTS_FEATURE_STYLUS,
 	FTS_FEATURE_QUICK_SHORT_CAMERA_ACCESS,
 	FTS_FEATURE_SIDE_GUSTURE,
 	FTS_FEATURE_COVER_GLASS,
-	FTS_FEATURE_FAST_GLOVE_MODE,
+	FTS_FEATURE_COVER_WALLET,
+	FTS_FEATURE_COVER_LED,
 };
 
 struct fts_ts_info {
@@ -412,6 +433,8 @@ struct fts_ts_info {
 	int ForceChannelLength;
 	short *pFrame;
 	unsigned char *cx_data;
+	struct delayed_work cover_cmd_work;
+	int delayed_cmd_param[2];
 #endif
 
 	bool hover_ready;
@@ -419,11 +442,16 @@ struct fts_ts_info {
 	bool mshover_enabled;
 	bool fast_mshover_enabled;
 	bool flip_enable;
+	bool flip_state;
+	bool run_autotune;
+	bool mainscr_disable;
 
 	unsigned char lowpower_flag;
 	bool lowpower_mode;
 	bool deepsleep_mode;
 	int fts_power_mode;
+	int cover_type;
+	bool edge_grip_mode;
 
 	unsigned char fts_mode;
 	int fts_pm_state;
@@ -444,6 +472,10 @@ struct fts_ts_info {
 	int touchkey_threshold;
 	struct device *fac_dev_tk;
 	struct regulator *keyled_vreg;
+#endif
+
+#ifdef FTS_SUPPORT_QEEXO_ROI
+	short roi_addr;
 #endif
 
 	int digital_rev;
@@ -515,6 +547,9 @@ struct fts_ts_info {
 #ifdef FTS_SUPPORT_NOISE_PARAM
 	int (*fts_get_noise_param_address) (struct fts_ts_info *info);
 #endif
+#ifdef FTS_SUPPORT_QEEXO_ROI
+	int (*get_fts_roi) (struct fts_ts_info *info);
+#endif
 
 #ifdef FTS_SUPPORT_TOUCH_KEY
 	int (*led_power)(struct fts_ts_info *info, bool on);
@@ -524,11 +559,11 @@ struct fts_ts_info {
 int fts_fw_update_on_probe(struct fts_ts_info *info);
 int fts_fw_update_on_hidden_menu(struct fts_ts_info *info, int update_type);
 void fts_fw_init(struct fts_ts_info *info);
-
-/* get_lcd_id : return lcd_id, 3bytes, id1, id2, id3, from command line
+void fts_release_all_finger(struct fts_ts_info *info);
+/* get_lcd_attached : return lcd_id, 3bytes, id1, id2, id3, from command line
  * get_samsung_lcd_attached : return lcd attched or detached
  */
-extern int get_lcd_id(void);
+extern int get_lcd_attached(char *mode);
 extern int get_samsung_lcd_attached(void);
 
 /*

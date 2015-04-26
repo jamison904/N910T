@@ -20,14 +20,14 @@
 #define __SEC_BATTERY_DATA_H __FILE__
 
 #if defined(CONFIG_SEC_TRLTE_PROJECT)
-static struct max77823_fuelgauge_battery_data_t max77823_battery_data[] = {
+static struct max77843_fuelgauge_battery_data_t max77843_battery_data[] = {
 	/* SDI battery data (High voltage 4.4V) */
 	{
 #if defined(CONFIG_SEC_TRLTE_CHNDUOS)
 		.rcomp0 = 0x0038,
 		.rcomp_charging = 0x0038,
-		.QResidual20 = 0x1E07,
-		.QResidual30 = 0x1408,
+		.QResidual20 = 0x1007,
+		.QResidual30 = 0x0B08,
 		.Capacity = 0x16E3, /* TR CHN: 2929mAh */
 #else
 		.rcomp0 = 0x0063,
@@ -56,14 +56,14 @@ static struct max77823_fuelgauge_battery_data_t max77823_battery_data[] = {
 };
 /* TBLTE_PROJECT */
 #else
-static struct max77823_fuelgauge_battery_data_t max77823_battery_data[] = {
+static struct max77843_fuelgauge_battery_data_t max77843_battery_data[] = {
 	/* SDI battery data (High voltage 4.4V) */
 	{
 		.rcomp0 = 0x0059,
 		.rcomp_charging = 0x0059,
 		.QResidual20 = 0x0A80,
 		.QResidual30 = 0x0782,
-		.Capacity = 0x1770, /* TB : 2952mAh */
+		.Capacity = 0x184C, /* TB : 3110mAh */
 		.low_battery_comp_voltage = 3500,
 		.low_battery_table = {
 			/* range, slope, offset */
@@ -525,6 +525,19 @@ static sec_bat_adc_table_data_t chg_temp_table[] = {
 	{41324, -200},
 };
 #endif
+
+#if defined(CONFIG_BATTERY_SWELLING)
+#define BATT_SWELLING_HIGH_TEMP_BLOCK		500
+#define BATT_SWELLING_HIGH_TEMP_RECOV		450
+#define BATT_SWELLING_LOW_TEMP_BLOCK		100
+#define BATT_SWELLING_LOW_TEMP_RECOV		150
+#define BATT_SWELLING_DROP_FLOAT_VOLTAGE		4250
+#define BATT_SWELLING_RECHG_VOLTAGE		4150
+#define BATT_SWELLING_BLOCK_TIME	10 * 60 /* 10 min */
+#endif
+
+#define TEMP_HIGHLIMIT_THRESHOLD	800
+#define TEMP_HIGHLIMIT_RECOVERY	700
 
 #if defined(CONFIG_MACH_TRLTE_ATT) || defined(CONFIG_MACH_TRLTE_SPR) || \
 	defined(CONFIG_MACH_TRLTE_TMO) || defined(CONFIG_MACH_TRLTE_USC) || \

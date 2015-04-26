@@ -1294,7 +1294,7 @@ static int sec_charger_read_u32_index_dt(const struct device_node *np,
 static int max77823_charger_parse_dt(struct max77823_charger_data *charger)
 {
 	struct device_node *np = of_find_node_by_name(NULL, "charger");
-	sec_battery_platform_data_t *pdata = charger->pdata;
+	sec_charger_platform_data_t *pdata = charger->pdata;
 	int ret = 0;
 
 	if (np == NULL) {
@@ -1350,7 +1350,7 @@ static int max77823_charger_probe(struct platform_device *pdev)
 	if (!charger)
 		return -ENOMEM;
 
-	pdata->charger_data = kzalloc(sizeof(sec_battery_platform_data_t), GFP_KERNEL);
+	pdata->charger_data = kzalloc(sizeof(sec_charger_platform_data_t), GFP_KERNEL);
 	if (!pdata->charger_data) {
 		ret = -ENOMEM;
 		goto err_free;
