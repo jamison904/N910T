@@ -4,7 +4,8 @@ date="$(date +%Y.%m.%d_%H.%M.%S)"
 target_dir="dist/${date}"
 
 export ARCH=arm
-export CROSS_COMPILE=/home/jamison/android/prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin/arm-eabi-
+#export CROSS_COMPILE=/home/jamison/android/prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin/arm-eabi-
+export CROSS_COMPILE=/home/jamison/android/toolchain/eabi-linaro-4.8/bin/arm-eabi-
 
 mkdir -p out
 

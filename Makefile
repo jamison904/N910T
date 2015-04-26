@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 10
 SUBLEVEL = 40
-EXTRAVERSION =BioShock_Lollipop-
+EXTRAVERSION =_BioShock_Lollipop-
 NAME = TOSSUG Baby Fish
 
 # *DOCUMENTATION*
@@ -401,6 +401,7 @@ endif
 KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \
 		   -Werror-implicit-function-declaration \
+                   -Wno-sizeof-pointer-memaccess \
 		   -Wno-format-security -Wno-unused-function -Wno-array-bounds -Wno-uninitialized \
 		   -fno-delete-null-pointer-checks -Wno-unused-variable -Wno-maybe-uninitialized -Wno-cpp -Wno-declaration-after-statement
 ifdef CONFIG_CC_OPTIMIZE_ALOT
