@@ -214,6 +214,34 @@ int parse_dek_packet(char *data,
 	return rc;
 }
 
+static int ecryptfs_dek_copy_mount_wide_sigs_to_inode_sigs(
+    struct ecryptfs_crypt_stat *crypt_stat,
+    struct ecryptfs_mount_crypt_stat *mount_crypt_stat)
+{
+    struct ecryptfs_global_auth_tok *global_auth_tok;
+    int rc = 0;
+
+    mutex_lock(&crypt_stat->keysig_list_mutex);
+    mutex_lock(&mount_crypt_stat->global_auth_tok_list_mutex);
+
+    list_for_each_entry(global_auth_tok,
+                &mount_crypt_stat->global_auth_tok_list,
+                mount_crypt_stat_list) {
+        if (global_auth_tok->flags & ECRYPTFS_AUTH_TOK_FNEK)
+            continue;
+        rc = ecryptfs_add_keysig(crypt_stat, global_auth_tok->sig);
+        if (rc) {
+            printk(KERN_ERR "Error adding keysig; rc = [%d]\n", rc);
+            goto out;
+        }
+    }
+
+out:
+    mutex_unlock(&mount_crypt_stat->global_auth_tok_list_mutex);
+    mutex_unlock(&crypt_stat->keysig_list_mutex);
+    return rc;
+}
+
 /*
  * set sensitive flag, update metadata
  * Set cached inode pages to sensitive
@@ -224,27 +252,38 @@ static int ecryptfs_update_crypt_flag(struct dentry *dentry, int is_sensitive)
 	struct inode *inode;
 	struct inode *lower_inode;
 	struct ecryptfs_crypt_stat *crypt_stat;
+	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
 	u32 tmp_flags;
 
+	printk("%s(is_sensitive:%d) entered\n", __func__, is_sensitive);
+
 	crypt_stat = &ecryptfs_inode_to_private(dentry->d_inode)->crypt_stat;
+	mount_crypt_stat = &ecryptfs_superblock_to_private(dentry->d_sb)->mount_crypt_stat;
 	if (!(crypt_stat->flags & ECRYPTFS_STRUCT_INITIALIZED))
 		ecryptfs_init_crypt_stat(crypt_stat);
 	inode = dentry->d_inode;
 	lower_inode = ecryptfs_inode_to_lower(inode);
+
+    /*
+     * To update metadata we need to make sure keysig_list contains fekek.
+     * Because our EDEK is stored along with key for protected file.
+     */
+    if(list_empty(&crypt_stat->keysig_list))
+        ecryptfs_dek_copy_mount_wide_sigs_to_inode_sigs(crypt_stat, mount_crypt_stat);
 
 	mutex_lock(&crypt_stat->cs_mutex);
 	rc = ecryptfs_get_lower_file(dentry, inode);
 	if (rc) {
 		mutex_unlock(&crypt_stat->cs_mutex);
 		DEK_LOGE("ecryptfs_get_lower_file rc=%d\n", rc);
-		goto out;
+		return rc;
 	}
 
 	tmp_flags = crypt_stat->flags;
 	if (is_sensitive) {
 		crypt_stat->flags |= ECRYPTFS_DEK_IS_SENSITIVE;
 		/*
-		* Set sensirive for all the pages in the inode 
+		* Set sensitive for all the pages in the inode
 		*/
 		set_sensitive_mapping_pages(inode->i_mapping, 0, -1);
 	}
@@ -269,9 +308,9 @@ static int ecryptfs_update_crypt_flag(struct dentry *dentry, int is_sensitive)
 		goto out;
 	}
 
-	ecryptfs_put_lower_file(inode);
 	mutex_unlock(&crypt_stat->cs_mutex);
 out:
+	ecryptfs_put_lower_file(inode);
 	fsstack_copy_attr_all(inode, lower_inode);
 	return rc;
 }
@@ -322,6 +361,39 @@ out:
 	memset(&DEK, 0, sizeof(dek_t));
 	return rc;
 }
+
+#if 0
+int ecryptfs_sdp_set_protected(struct dentry *dentry) {
+    int rc = 0;
+    struct inode *inode = dentry->d_inode;
+    struct ecryptfs_crypt_stat *crypt_stat =
+            &ecryptfs_inode_to_private(inode)->crypt_stat;
+
+    DEK_LOGD("%s(%s)\n", __func__, dentry->d_name.name);
+
+    rc = ecryptfs_get_sdp_dek(crypt_stat);
+    if (rc) {
+        ecryptfs_printk(KERN_ERR, "%s Get SDP key failed\n", __func__);
+        goto out;
+    }
+    /*
+     * TODO : double check if need to compute iv here
+     */
+    rc = ecryptfs_compute_root_iv(crypt_stat);
+    if (rc) {
+        ecryptfs_printk(KERN_ERR, "Error computing "
+                "the root IV\n");
+        goto out;
+    }
+
+    rc = ecryptfs_set_key(crypt_stat);
+    if(rc) goto out;
+
+    ecryptfs_update_crypt_flag(dentry, 0);
+out:
+    return rc;
+}
+#endif
 
 int ecryptfs_sdp_convert_dek(struct dentry *dentry) {
 	int rc = 0;

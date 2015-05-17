@@ -47,8 +47,6 @@
 #include <linux/compat.h>
 #endif
 
-#include <linux/of.h>
-
 MODULE_DESCRIPTION("Diag Char Driver");
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION("1.0");
@@ -83,10 +81,6 @@ static unsigned int threshold_client_limit = 30;
 /* This is the maximum number of pkt registrations supported at initialization*/
 int diag_max_reg = 600;
 int diag_threshold_reg = 750;
-
-#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
-static int enable_diag;
-#endif
 
 /* Timer variables */
 static struct timer_list drain_timer;
@@ -2527,17 +2521,6 @@ void diagfwd_bridge_fn(int type)
 #else
 inline void diagfwd_bridge_fn(int type) { }
 #endif
-
-#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
-static int check_diagchar_enabled(char *str)
-{
-	get_option(&str, &enable_diag);
-	pr_debug("%s : enable_diag = %s\n", __func__, ((enable_diag) ? "Yes":"No"));
-	return 0;
-}
-__setup("diag=", check_diagchar_enabled);
-#endif
-
 static int __init diagchar_init(void)
 {
 	dev_t dev;
@@ -2545,13 +2528,6 @@ static int __init diagchar_init(void)
 
 	pr_debug("diagfwd initializing ..\n");
 	ret = 0;
-
-#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
-	if (!enable_diag) {
-		pr_info("diagchar_core isn't enabled.\n");
-		return -EPERM;
-	}
-#endif
 
 	driver = kzalloc(sizeof(struct diagchar_dev) + 5, GFP_KERNEL);
 	if (!driver)

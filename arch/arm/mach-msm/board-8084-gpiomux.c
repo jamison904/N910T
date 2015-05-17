@@ -3133,7 +3133,8 @@ static struct msm_gpiomux_config gpio_nc_configs[] __initdata = {
 	defined(CONFIG_MACH_TRLTE_VZW) || defined(CONFIG_MACH_TRLTE_USC) || \
 	defined(CONFIG_MACH_TRLTE_CAN) || defined(CONFIG_MACH_TBLTE_VZW) || \
 	defined(CONFIG_MACH_TBLTE_ATT) || defined(CONFIG_MACH_TBLTE_TMO) || \
-	defined(CONFIG_MACH_TBLTE_CHN) || defined(CONFIG_MACH_TBLTE_USC)
+	defined(CONFIG_MACH_TBLTE_CHN) || defined(CONFIG_MACH_TBLTE_USC) || \
+	defined(CONFIG_MACH_TRLTE_SPR)
 
 	/* CTI_PAIR2 */
 	GPIOMUX_SET_NC(123),

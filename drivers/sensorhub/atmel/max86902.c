@@ -4338,6 +4338,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	err = input_register_device(data->hrm_input_dev);
 	if (err < 0) {
+		input_free_device(data->hrm_input_dev);
 		pr_err("%s - could not register input device\n", __func__);
 		goto err_hrm_input_register_device;
 	}
@@ -4370,7 +4371,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (!data->hrmled_input_dev) {
 		pr_err("%s - could not allocate input device\n",
 			__func__);
-		goto err_hrm_input_allocate_device;
+		goto err_hrmled_input_allocate_device;
 	}
 
 	input_set_drvdata(data->hrmled_input_dev, data);
@@ -4383,13 +4384,13 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (err < 0) {
 		input_free_device(data->hrmled_input_dev);
 		pr_err("%s - could not register input device\n", __func__);
-		goto err_hrm_input_register_device;
+		goto err_hrmled_input_register_device;
 	}
 
 	err = sensors_create_symlink(data->hrmled_input_dev);
 	if (err < 0) {
 		pr_err("%s - create_symlink error\n", __func__);
-		goto err_hrm_sensors_create_symlink;
+		goto err_hrmled_sensors_create_symlink;
 	}
 
 	err = sysfs_create_group(&data->hrmled_input_dev->dev.kobj,
@@ -4397,7 +4398,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (err) {
 		pr_err("[SENSOR] %s - could not create sysfs group\n",
 			__func__);
-		goto err_hrm_sysfs_create_group;
+		goto err_hrmled_sysfs_create_group;
 	}
 
 	/* set sysfs for hrm led sensor */
@@ -4406,7 +4407,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (err) {
 		pr_err("[SENSOR] %s - cound not register hrm_sensor(%d).\n",
 			__func__, err);
-		goto hrm_sensor_register_failed;
+		goto hrmled_sensor_register_failed;
 	}
 
 	/* allocate input device for UV*/
@@ -4424,6 +4425,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	err = input_register_device(data->uv_input_dev);
 	if (err < 0) {
+		input_free_device(data->uv_input_dev);
 		pr_err("%s - could not register input device\n", __func__);
 		goto err_uv_input_register_device;
 	}
@@ -4493,21 +4495,33 @@ max86900_init_device_failed:
 err_setup_irq:
 	sensors_unregister(data->dev, uv_sensor_attrs);
 uv_sensor_register_failed:
+	sysfs_remove_group(&data->uv_input_dev->dev.kobj,
+			   &uv_attribute_group);
 err_uv_sysfs_create_group:
 	sensors_remove_symlink(data->uv_input_dev);
 err_uv_sensors_create_symlink:
 	input_unregister_device(data->uv_input_dev);
 err_uv_input_register_device:
-	input_free_device(data->uv_input_dev);
 err_uv_input_allocate_device:
+	sensors_unregister(data->dev, hrmled_sensor_attrs);
+hrmled_sensor_register_failed:
+	sysfs_remove_group(&data->hrmled_input_dev->dev.kobj,
+			   &hrmled_attribute_group);
+err_hrmled_sysfs_create_group:
+	sensors_remove_symlink(data->hrmled_input_dev);
+err_hrmled_sensors_create_symlink:
+	input_unregister_device(data->hrmled_input_dev);
+err_hrmled_input_register_device:
+err_hrmled_input_allocate_device:
 	sensors_unregister(data->dev, hrm_sensor_attrs);
 hrm_sensor_register_failed:
+	sysfs_remove_group(&data->hrm_input_dev->dev.kobj,
+			   &hrm_attribute_group);
 err_hrm_sysfs_create_group:
 	sensors_remove_symlink(data->hrm_input_dev);
 err_hrm_sensors_create_symlink:
 	input_unregister_device(data->hrm_input_dev);
 err_hrm_input_register_device:
-	input_free_device(data->hrm_input_dev);
 err_hrm_input_allocate_device:
 err_of_read_chipid:
 	max86900_regulator_onoff(data, HRM_LDO_OFF);

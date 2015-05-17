@@ -3220,6 +3220,11 @@ static ssize_t mdss_samsung_alpm_store(struct device *dev,
 		if (pinfo->panel_state) {
 			if (!alpm_status_func(CHECK_PREVIOUS_STATUS)\
 					&& alpm_status_func(CHECK_CURRENT_STATUS)) {
+				/* Set min brightness to prevent panel malfunction with ALPM */
+				pr_info("[ALPM_DEBUG] Set Min Birghtness \n");
+				mutex_lock(&vdd->mfd_dsi[DISPLAY_1]->bl_lock);
+				pdata->set_backlight(pdata, ALPM_BRIGHTNESS);
+				mutex_unlock(&vdd->mfd_dsi[DISPLAY_1]->bl_lock);
 				/* Turn On ALPM Mode */
 				mdss_samsung_send_cmd(ctrl, PANEL_ALPM_ON);
 				msleep(20); /* wait 1 frame(more than 16ms) */
